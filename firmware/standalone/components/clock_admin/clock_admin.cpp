@@ -18,14 +18,17 @@ constexpr char PAGE[] = R"html(<!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Wi-Fi Clock</title>
 <style>
-html{color-scheme:light dark;--page:#fff;--text:#182230;--link:#174ea6;--field:#fff;--border:#6b7280}
+html{color-scheme:light dark;--page:#fff;--text:#182230;--link:#174ea6;--field:#fff;--border:#6b7280;--header-start:#edf5fb;--header-end:#e8f4ee}
 @media(prefers-color-scheme:dark){
-  html{--page:#151922;--text:#f1f5f9;--link:#a8c7ff;--field:#222938;--border:#8895aa}
+  html{--page:#151922;--text:#f1f5f9;--link:#a8c7ff;--field:#222938;--border:#8895aa;--header-start:#1b2a3b;--header-end:#20332e}
 }
 body{margin:0;font:16px system-ui,sans-serif;background:var(--page);color:var(--text)}
 a{color:var(--link)}
-.site-header{background:var(--field);border-bottom:1px solid var(--border)}
-.site-title{margin:0;padding:1.15rem 1rem .5rem;font-size:clamp(1.25rem,4vw,1.75rem);overflow-wrap:anywhere}
+.site-header{background:linear-gradient(110deg,var(--header-start),var(--header-end));border-bottom:1px solid var(--border)}
+.site-identity{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:1.15rem 1rem .65rem}
+.site-title{margin:0;font-size:clamp(1.05rem,4vw,1.75rem);line-height:1.2}
+.site-meta{flex-shrink:0;max-width:52%;text-align:right;font-size:clamp(.65rem,2.3vw,.85rem);line-height:1.2;overflow-wrap:anywhere}
+.site-meta span{display:block}
 nav{display:flex;flex-wrap:wrap;gap:.25rem;padding:0 .65rem}
 nav a{padding:.7rem .55rem;text-decoration:none;border-bottom:3px solid transparent}
 nav a:hover{text-decoration:underline}
@@ -40,7 +43,13 @@ input,select,button{font:inherit;padding:.45rem;background:var(--field);color:va
 form{margin:0 0 2rem}
 </style>
 <header class="site-header">
-<h1 class="site-title" id="clock-title">Wi-Fi Clock</h1>
+<div class="site-identity">
+<h1 class="site-title">ESP32 WiFi Clock</h1>
+<div class="site-meta">
+<span id="clock-hostname"></span>
+<span>v)html" ESPHOME_PROJECT_VERSION R"html(</span>
+</div>
+</div>
 <nav aria-label="Clock pages">
 <a href="/" id="controls">Controls</a><a href="/alarm" id="alarm-tab">Alarm</a><a href="/admin" id="admin-tab">Administration</a>
 </nav>
@@ -74,6 +83,11 @@ form{margin:0 0 2rem}
 <p>Use up to 30 letters, digits, and hyphens. Leave blank to restore the default MAC-based name.</p>
 <button>Save hostname</button>
 </form>
+<form action="/admin/domain" method="post">
+<label>Domain name<input id="clock-domain" name="domain" maxlength="222" placeholder="local" autocomplete="off"></label>
+<p>Leave blank to use local. For a custom domain, configure your router or DNS server to point the full name to this clock.</p>
+<button>Save domain</button>
+</form>
 <form action="/admin/timezone" method="post">
 <h3>Timezone</h3>
 <label>Timezone<select name="zone" required>
@@ -105,6 +119,7 @@ form{margin:0 0 2rem}
 <h3>Website login</h3>
 <label>New username<input name="username" required maxlength="32" pattern="[A-Za-z0-9_.-]+" autocomplete="username"></label>
 <label>New password<input name="password" type="password" required minlength="8" maxlength="64" autocomplete="new-password"></label>
+<label>Confirm new password<input name="confirm_password" type="password" required minlength="8" maxlength="64" autocomplete="new-password"></label>
 <button>Save login</button>
 </form>
 <form action="/admin/reset" method="post">
@@ -119,15 +134,29 @@ const admin = location.pathname === '/admin';
 const alarm = location.pathname === '/alarm';
 document.querySelector(admin ? '#admin-tab' : alarm ? '#alarm-tab' : '#controls').setAttribute('aria-current', 'page');
 fetch('/admin/hostname', {cache: 'no-store'})
-  .then(response => response.ok ? response.text() : Promise.reject())
-  .then(hostname => {
-    document.querySelector('#clock-title').textContent = hostname;
-    document.title = hostname + ' · ' + (admin ? 'Administration' : alarm ? 'Alarm' : 'Controls');
-    if (admin) document.querySelector('#current-hostname').textContent = 'Current address ' + hostname + '.local';
+  .then(response => response.ok ? response.json() : Promise.reject())
+  .then(({hostname, domain}) => {
+    const address = hostname + '.' + domain;
+    document.querySelector('#clock-hostname').textContent = address;
+    document.title = address + ' · ' + (admin ? 'Administration' : alarm ? 'Alarm' : 'Controls');
+    if (admin) {
+      document.querySelector('#current-hostname').textContent = 'Current address ' + address;
+      document.querySelector('#clock-domain').value = domain;
+    }
   })
   .catch(() => {});
 if (admin) {
   document.querySelector('#admin').hidden = false;
+  const login = document.querySelector('form[action="/admin/login"]');
+  const password = login.elements.password;
+  const confirmation = login.elements.confirm_password;
+  const checkPassword = () => confirmation.setCustomValidity(
+    confirmation.value && confirmation.value !== password.value ? 'The passwords do not match.' : '');
+  login.addEventListener('input', checkPassword);
+  login.addEventListener('submit', event => {
+    checkPassword();
+    if (!login.reportValidity()) event.preventDefault();
+  });
 } else if (alarm) {
   document.querySelector('#alarm').hidden = false;
   const form = document.querySelector('form[action="/alarm/settings"]');
@@ -244,6 +273,22 @@ bool valid_hostname(const std::string &value) {
           value.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-") == std::string::npos);
 }
 
+bool valid_domain(const std::string &value) {
+  if (value.empty() || value.size() > 222 || value.back() == '.') return false;
+  size_t start = 0;
+  while (start < value.size()) {
+    const size_t end = value.find('.', start);
+    const size_t length = end == std::string::npos ? value.size() - start : end - start;
+    if (length == 0 || length > 63 || value[start] == '-' || value[start + length - 1] == '-')
+      return false;
+    const size_t invalid = value.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-", start);
+    if (invalid != std::string::npos && invalid < start + length) return false;
+    if (end == std::string::npos) return true;
+    start = end + 1;
+  }
+  return false;
+}
+
 bool valid_username(const std::string &username) {
   return !username.empty() && username.size() <= 32 &&
          username.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-") ==
@@ -273,6 +318,11 @@ void ClockAdmin::setup() {
       if (valid_hostname(old_prefix.data())) memcpy(hostname_.data(), old_prefix.data(), old_prefix.size());
     }
   }
+  domain_preference_ = global_preferences->make_preference<SavedDomain>(0x4855444D);
+  domain_preference_.load(&domain_);
+  domain_.back() = '\0';
+  if (!valid_domain(domain_.data())) memcpy(domain_.data(), "local", sizeof("local"));
+
   auto *base = web_server_base::global_web_server_base;
   preference_ = global_preferences->make_preference<Credentials>(0x48554341);
   if (preference_.load(&credentials_)) {
@@ -307,7 +357,8 @@ bool ClockAdmin::canHandle(AsyncWebServerRequest *request) const {
   return request->method() == HTTP_POST && (path == "/admin/wifi" || path == "/admin/login" ||
                                           path == "/admin/timezone" || path == "/admin/time" ||
                                           path == "/alarm/settings" || path == "/alarm/test" ||
-                                          path == "/alarm/silence" || path == "/admin/hostname" || path == "/admin/reset");
+                                          path == "/alarm/silence" || path == "/admin/hostname" || path == "/admin/domain" ||
+                                          path == "/admin/reset");
 }
 
 void ClockAdmin::handleRequest(AsyncWebServerRequest *request) {
@@ -317,7 +368,11 @@ void ClockAdmin::handleRequest(AsyncWebServerRequest *request) {
     if (path == "/" && request->arg("controls") == "1") {
       web_server_->handle_index_request(request);
     } else if (path == "/admin/hostname") {
-      request->send(200, "text/plain", hostname_[0] ? hostname_.data() : App.get_name().c_str());
+      auto json = json::build_json([&](JsonObject root) {
+        root["hostname"] = hostname_[0] ? hostname_.data() : App.get_name().c_str();
+        root["domain"] = domain_.data();
+      });
+      request->send(200, "application/json", json.c_str());
     } else if (path == "/alarm/state") {
       const auto alarm = alarm_time_->state_as_esptime();
       char time_value[8];
@@ -352,12 +407,28 @@ void ClockAdmin::handleRequest(AsyncWebServerRequest *request) {
     }
     SavedHostname hostname{};
     memcpy(hostname.data(), value.data(), value.size());
-    const std::string next = (value.empty() ? App.get_name().str() : value) + ".local";
+    const std::string next = (value.empty() ? App.get_name().str() : value) + "." + domain_.data();
     const std::string message = "Hostname change submitted. After restart, open http://" + next + "/";
     request->send(200, "text/plain", message.c_str());
     this->defer([this, hostname]() {
       if (hostname_preference_.save(&hostname) && global_preferences->sync()) App.safe_reboot();
       else ESP_LOGE("clock_admin", "Unable to save hostname");
+    });
+    return;
+  }
+  if (path == "/admin/domain") {
+    auto value = request->arg("domain");
+    if (value.empty()) value = "local";
+    if (!request->hasArg("domain") || !valid_domain(value)) {
+      request->send(400, "text/plain", "Enter a domain such as local or home.arpa, with no scheme or trailing dot.");
+      return;
+    }
+    SavedDomain domain{};
+    memcpy(domain.data(), value.data(), value.size());
+    request->send(200, "text/plain", "Domain change submitted. The clock will restart.");
+    this->defer([this, domain]() {
+      if (domain_preference_.save(&domain) && global_preferences->sync()) App.safe_reboot();
+      else ESP_LOGE("clock_admin", "Unable to save domain");
     });
     return;
   }
@@ -455,6 +526,10 @@ void ClockAdmin::handleRequest(AsyncWebServerRequest *request) {
     return;
   }
 
+  if (!request->hasArg("confirm_password") || request->arg("confirm_password") != password) {
+    request->send(400, "text/plain", "The new passwords must match.");
+    return;
+  }
   const auto username = request->arg("username");
   if (!valid_username(username) || password.size() < 8 || password.size() > 64 ||
       !printable_password(password)) {

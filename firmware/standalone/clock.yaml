@@ -4,7 +4,7 @@ packages:
   clock_features: !include clock_features.yaml
 
 substitutions:
-  firmware_version: "1.0.1"
+  firmware_version: "1.1.1"
   name: wifi-clock
   friendly_name: WiFi Clock
 

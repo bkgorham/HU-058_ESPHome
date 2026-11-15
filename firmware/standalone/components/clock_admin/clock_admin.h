@@ -44,6 +44,9 @@ class ClockAdmin : public Component, public AsyncWebHandler {
   using SavedHostname = std::array<char, 31>;
   ESPPreferenceObject hostname_preference_;
   SavedHostname hostname_{};
+  using SavedDomain = std::array<char, 223>;
+  ESPPreferenceObject domain_preference_;
+  SavedDomain domain_{};
 };
 
 }  // namespace esphome::clock_admin
