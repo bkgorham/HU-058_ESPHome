@@ -14,7 +14,21 @@ Use the existing ESP32 conversion wiring. For a stock kit, follow the [upstream 
 | Driver 2 DATA | GPIO18 | 2 |
 | Top button S1 | GPIO32 | 9 |
 | Bottom button S2 | GPIO33 | 10 |
-| Ground | GND | 8 |
+| Buzzer control | GPIO25 | 11, to the S8550 base resistor |
+| Indoor NTC thermistor | GPIO34 | 3, at the thermistor divider junction |
+| 5539 light sensor | GPIO35 | 4, at the LDR divider junction |
+| Common ground | GND | 8 |
+| Sensor and buzzer supply | 3V3 | Rewired supply pads for the two divider pull-ups and S8550 emitter circuit |
+
+### Move the three circuits to 3.3 V
+
+With power disconnected, cut the original **5 V supply trace feeding each of these three circuits**. Solder a jumper from the ESP32 **3V3** pin to the isolated supply side of each circuit:
+
+- **Buzzer:** Feed the S8550 emitter and its base pull-up from **3.3 V**. GPIO25 controls the base through the existing base resistor at socket pin 11.
+- **Thermistor:** Feed the supply side of the fixed 10 kΩ divider resistor from **3.3 V**. Socket pin 3 is the divider signal for GPIO34.
+- **Light sensor:** Feed the supply side of the fixed 10 kΩ divider resistor from **3.3 V**. Socket pin 4 is the divider signal for GPIO35.
+
+Trace the connections on your board before cutting. Cut only the feeds to these three circuits and keep the display’s 5 V supply intact. With the ESP32 GPIO leads disconnected, verify the rewired supply pads read about 3.3 V and both sensor signal nodes stay within 0–3.3 V relative to common ground. Power off before attaching the GPIO leads.
 
 ## Build and flash
 
