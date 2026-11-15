@@ -56,7 +56,7 @@ For a bare 8-pin DS1302, identify pin 1 from the package marking and wire it as 
 | 7 | SCLK | ESP32 GPIO23 |
 | 8 | VCC1 | Positive terminal of a 3 V backup battery, such as a CR2032 |
 
-The firmware disables the DS1302 trickle charger. Keep the main RTC supply and GPIO signals at 3.3 V. If reusing a clock PCB’s RTC footprint, verify its supply and signal traces before connecting the ESP32. The coin cell powers the RTC only. [DS1302 datasheet](https://www.analog.com/media/en/technical-documentation/data-sheets/DS1302.pdf)
+The firmware disables the DS1302 trickle charger. Keep the main RTC supply and GPIO signals at 3.3 V. If reusing a clock PCB’s RTC footprint, verify its supply and signal traces before connecting the ESP32. The coin cell powers the RTC only. [DS1302 datasheet](../../reference/ds1302-datasheet.pdf)
 
 Set the time once through setup or Administration, or let the clock sync over Wi-Fi. These operations write UTC to the RTC. On boot the firmware reads the RTC, then applies the clock’s timezone. To test backup, disconnect the clock’s main power for a few minutes, leave the coin cell installed, and restart without home Wi-Fi. The display should show the elapsed time. A factory reset invalidates the saved RTC time. Set or sync the time again afterward.
 
