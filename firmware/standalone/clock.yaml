@@ -167,7 +167,7 @@ binary_sensor:
     id: button_1
     internal: true
     pin:
-      number: GPIO32  # MCU socket pin 9, net S1, top button on the case
+      number: GPIO32  # MCU socket pin 10, net S1, top button on the case
       mode:
         input: true
         pullup: true
@@ -181,7 +181,7 @@ binary_sensor:
     id: button_2
     internal: true
     pin:
-      number: GPIO33  # MCU socket pin 10, net S2, bottom button on the case
+      number: GPIO33  # MCU socket pin 9, net S2, bottom button on the case
       mode:
         input: true
         pullup: true

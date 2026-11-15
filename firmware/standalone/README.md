@@ -12,8 +12,8 @@ Use the existing ESP32 conversion wiring. For a stock kit, follow the [upstream 
 | Driver 1 DATA | GPIO21 | Original MCU socket pin 5 |
 | Driver 2 CLK | GPIO19 | Original MCU socket pin 1 |
 | Driver 2 DATA | GPIO18 | Original MCU socket pin 2 |
-| Top button S1 | GPIO32 | Original MCU socket pin 9 |
-| Bottom button S2 | GPIO33 | Original MCU socket pin 10 |
+| Top button S1 | GPIO32 | Original MCU socket pin 10 |
+| Bottom button S2 | GPIO33 | Original MCU socket pin 9 |
 | Buzzer control | GPIO25 | Original MCU socket pin 11, to the S8550 base resistor |
 | Indoor NTC thermistor | GPIO34 | Original MCU socket pin 3, at the thermistor divider junction |
 | 5539 light sensor | GPIO35 | Original MCU socket pin 4, at the LDR divider junction |
