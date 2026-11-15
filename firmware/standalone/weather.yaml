@@ -1,0 +1,166 @@
+http_request:
+  timeout: 5s
+  verify_ssl: true
+
+globals:
+  - id: outdoor_temperature_shown
+    type: bool
+    initial_value: 'false'
+  - id: weather_coordinates
+    type: std::string
+  - id: weather_updated_at
+    type: uint32_t
+    initial_value: '0'
+
+text:
+  - platform: template
+    name: Weather ZIP Code
+    web_server:
+      sorting_group_id: temperature_controls
+      sorting_weight: 20
+    id: weather_zip
+    mode: text
+    pattern: '([0-9]{5})?'
+    min_length: 0
+    max_length: 5
+    initial_value: ""
+    optimistic: true
+    restore_value: true
+    on_value:
+      - lambda: |-
+          id(weather_coordinates).clear();
+          id(weather_updated_at) = 0;
+          id(outdoor_temperature).publish_state(NAN);
+          const bool valid_zip = x.size() == 5 && x.find_first_not_of("0123456789") == std::string::npos;
+          id(weather_status).publish_state(valid_zip ? "Waiting for weather" : "Enter a five-digit US ZIP code");
+      - script.execute: refresh_weather
+
+text_sensor:
+  - platform: template
+    name: Weather Status
+    web_server:
+      sorting_group_id: temperature_controls
+      sorting_weight: 30
+    id: weather_status
+    lambda: |-
+      if (id(weather_zip).state.empty()) return {"Enter a five-digit US ZIP code"};
+      return {};
+    update_interval: 30s
+
+sensor:
+  - platform: template
+    name: Outdoor Temperature
+    web_server:
+      sorting_group_id: temperature_controls
+      sorting_weight: 10
+    id: outdoor_temperature
+    device_class: temperature
+    unit_of_measurement: "°F"
+    accuracy_decimals: 0
+    update_interval: never
+
+interval:
+  - interval: 5min
+    startup_delay: 20s
+    then:
+      - if:
+          condition:
+            lambda: |-
+              return id(weather_updated_at) == 0 ||
+                     id(sntp_time).timestamp_now() - id(weather_updated_at) >= 15 * 60;
+          then:
+            - script.execute: refresh_weather
+
+script:
+  - id: refresh_weather
+    mode: single
+    then:
+      - if:
+          condition:
+            and:
+              - wifi.connected:
+              - time.has_time:
+              - lambda: |-
+                  const auto &zip = id(weather_zip).state;
+                  return zip.size() == 5 && zip.find_first_not_of("0123456789") == std::string::npos;
+          then:
+            - if:
+                condition:
+                  lambda: return id(weather_coordinates).empty();
+                then:
+                  - http_request.get:
+                      url: !lambda return "https://api.zippopotam.us/us/" + id(weather_zip).state;
+                      capture_response: true
+                      max_response_buffer_size: 4kB
+                      on_error:
+                        - text_sensor.template.publish:
+                            id: weather_status
+                            state: ZIP lookup unavailable
+                      on_response:
+                        - lambda: |-
+                            if (response->status_code == 404) {
+                              id(weather_status).publish_state("ZIP code not found");
+                              return;
+                            }
+                            if (response->status_code == 200 &&
+                                json::parse_json(body, [](JsonObject root) {
+                                  JsonObject place = root["places"][0];
+                                  const char *lat = place["latitude"];
+                                  const char *lon = place["longitude"];
+                                  if (!lat || !lon) return false;
+                                  char *end;
+                                  const double latitude = strtod(lat, &end);
+                                  if (end == lat || *end || !std::isfinite(latitude) || std::abs(latitude) > 90) return false;
+                                  const double longitude = strtod(lon, &end);
+                                  if (end == lon || *end || !std::isfinite(longitude) || std::abs(longitude) > 180) return false;
+                                  id(weather_coordinates) = "latitude=" + std::to_string(latitude) +
+                                                            "&longitude=" + std::to_string(longitude);
+                                  return true;
+                                })) return;
+                            id(weather_status).publish_state("ZIP lookup unavailable");
+            - if:
+                condition:
+                  lambda: return !id(weather_coordinates).empty();
+                then:
+                  - http_request.get:
+                      url: !lambda |-
+                        return "https://api.open-meteo.com/v1/forecast?" + id(weather_coordinates) +
+                               "&current=temperature_2m&temperature_unit=fahrenheit";
+                      capture_response: true
+                      on_error:
+                        - text_sensor.template.publish:
+                            id: weather_status
+                            state: Weather update failed
+                      on_response:
+                        - lambda: |-
+                            if (response->status_code == 200 &&
+                                json::parse_json(body, [](JsonObject root) {
+                                  auto value = root["current"]["temperature_2m"];
+                                  if (!value.is<float>()) return false;
+                                  const float temperature = value.as<float>();
+                                  if (!std::isfinite(temperature) || temperature < -99 || temperature > 200) return false;
+                                  id(weather_updated_at) = id(sntp_time).timestamp_now();
+                                  id(outdoor_temperature).publish_state(temperature);
+                                  id(weather_status).publish_state("Temperature updated");
+                                  return true;
+                                })) return;
+                            id(weather_status).publish_state("Weather update failed");
+
+  - id: show_outdoor_temperature
+    mode: single
+    then:
+      - lambda: id(outdoor_temperature_shown) = false;
+      - if:
+          condition:
+            lambda: |-
+              return id(weather_updated_at) == 0 ||
+                     id(sntp_time).timestamp_now() - id(weather_updated_at) >= 30 * 60;
+          then:
+            - script.execute: refresh_weather
+            - script.wait: refresh_weather
+      - lambda: |-
+          if (id(weather_updated_at) != 0 &&
+              id(sntp_time).timestamp_now() - id(weather_updated_at) < 30 * 60) {
+            id(panel)->show_temperature(std::lround(id(outdoor_temperature).state), 5000);
+            id(outdoor_temperature_shown) = true;
+          }

@@ -1,0 +1,280 @@
+substitutions:
+  buzzer_pin: "25"
+
+datetime:
+  - platform: template
+    type: time
+    id: alarm_time
+    name: Daily Alarm Time
+    internal: true
+    optimistic: true
+    restore_value: true
+    initial_value: "07:00:00"
+
+  - platform: template
+    type: time
+    id: display_on_time
+    name: Scheduled Display On
+    web_server:
+      sorting_group_id: display_controls
+      sorting_weight: 60
+    optimistic: true
+    restore_value: true
+    initial_value: "07:00:00"
+    set_action:
+      - delay: 1ms
+      - script.execute: apply_display_schedule
+
+  - platform: template
+    type: time
+    id: display_off_time
+    name: Scheduled Display Off
+    web_server:
+      sorting_group_id: display_controls
+      sorting_weight: 70
+    optimistic: true
+    restore_value: true
+    initial_value: "23:00:00"
+    set_action:
+      - delay: 1ms
+      - script.execute: apply_display_schedule
+
+sensor:
+  - platform: template
+    id: auto_brightness_level
+    name: Current Auto Brightness
+    web_server:
+      sorting_group_id: brightness_controls
+      sorting_weight: 10
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    update_interval: never
+
+  - platform: adc
+    pin: GPIO35
+    id: ambient_light
+    name: Ambient Light Voltage
+    web_server:
+      sorting_group_id: brightness_controls
+      sorting_weight: 20
+    attenuation: 12db
+    update_interval: 1s
+    filters:
+      - exponential_moving_average:
+          alpha: 0.25
+          send_every: 1
+    on_value:
+      - script.execute: apply_ambient_brightness
+
+switch:
+  - platform: template
+    name: Automatic Brightness
+    web_server:
+      sorting_group_id: brightness_controls
+      sorting_weight: 0
+    id: auto_brightness
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    turn_on_action:
+      - script.execute: apply_ambient_brightness
+    turn_off_action:
+      - lambda: |-
+          id(panel)->set_ambient_brightness_factor(1.0f);
+          id(auto_brightness_level).publish_state(NAN);
+
+  - platform: template
+    id: skip_next_alarm
+    name: Skip Next Alarm
+    internal: true
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+
+  - platform: template
+    id: alarm_enabled
+    name: Enable Daily Alarm
+    internal: true
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    turn_off_action:
+      - script.execute: silence_alarm
+
+  - platform: template
+    id: schedule_enabled
+    name: Enable Display Schedule
+    web_server:
+      sorting_group_id: display_controls
+      sorting_weight: 50
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    turn_on_action:
+      - delay: 1ms
+      - script.execute: apply_display_schedule
+
+number:
+  - platform: template
+    id: buzzer_volume
+    name: Buzzer Volume
+    internal: true
+    min_value: 0
+    max_value: 100
+    step: 1
+    initial_value: 100
+    optimistic: true
+    restore_value: true
+
+  - platform: template
+    id: buzzer_frequency
+    name: Buzzer Frequency
+    internal: true
+    min_value: 1000
+    max_value: 5000
+    step: 100
+    initial_value: 2500
+    optimistic: true
+    restore_value: true
+
+  - platform: template
+    id: alarm_duration
+    name: Alarm Duration
+    internal: true
+    unit_of_measurement: s
+    min_value: 1
+    max_value: 300
+    step: 1
+    initial_value: 30
+    optimistic: true
+    restore_value: true
+
+globals:
+  - id: last_alarm_day
+    type: int
+    initial_value: '-1'
+  - id: scheduled_blank
+    type: int
+    initial_value: '-1'
+
+text_sensor:
+  - platform: template
+    name: Daily Alarm Status
+    id: alarm_status
+    internal: true
+    update_interval: 5s
+    lambda: |-
+      if (!id(alarm_enabled).state) return {"Disabled"};
+      if (id(skip_next_alarm).state) return {"Next alarm will be skipped"};
+      const auto now = id(sntp_time).now();
+      if (!now.is_valid()) return {"Waiting for valid clock time"};
+      const auto alarm = id(alarm_time).state_as_esptime();
+      const int day = now.year * 400 + now.day_of_year;
+      const int alarm_minute = alarm.hour * 60 + alarm.minute;
+      const bool tomorrow = now.hour * 60 + now.minute > alarm_minute ||
+                            id(last_alarm_day) == day;
+      char status[64];
+      snprintf(status, sizeof(status), "Armed for %02u:%02u %s (clock %02u:%02u)",
+               alarm.hour, alarm.minute, tomorrow ? "tomorrow" : "today", now.hour, now.minute);
+      return {status};
+
+interval:
+  - interval: 1s
+    then:
+      - script.execute: check_clock_events
+
+button:
+  - platform: template
+    name: Test Buzzer
+    id: test_buzzer_button
+    internal: true
+    on_press:
+      - script.execute:
+          id: ring_buzzer
+          pulses: 3
+
+  - platform: template
+    name: Silence Alarm
+    id: silence_alarm_button
+    internal: true
+    on_press:
+      - script.execute: silence_alarm
+
+script:
+  - id: apply_ambient_brightness
+    then:
+      - lambda: |-
+          const float voltage = id(ambient_light).state;
+          if (!id(auto_brightness).state || !std::isfinite(voltage)) return;
+          const float light = std::clamp((2.5f - voltage) / (2.5f - 0.25f), 0.0f, 1.0f);
+          const float factor = 0.15f + 0.85f * light;
+          id(panel)->set_ambient_brightness_factor(factor);
+          float brightness;
+          id(display).current_values_as_brightness(&brightness);
+          id(auto_brightness_level).publish_state(brightness > 0.0f && !id(display_blank).state
+              ? std::clamp(std::lround(100.0f * brightness * factor), 1L, 100L)
+              : NAN);
+
+  - id: apply_display_schedule
+    then:
+      - lambda: |-
+          const auto now = id(sntp_time).now();
+          if (!id(schedule_enabled).state || !now.is_valid()) {
+            id(scheduled_blank) = -1;
+            return;
+          }
+          const auto on = id(display_on_time).state_as_esptime();
+          const auto off = id(display_off_time).state_as_esptime();
+          const int start = on.hour * 60 + on.minute;
+          const int end = off.hour * 60 + off.minute;
+          const int minute = now.hour * 60 + now.minute;
+          const bool visible = start == end || (start < end ? minute >= start && minute < end
+                                                            : minute >= start || minute < end);
+          const int blank = visible ? 0 : 1;
+          if (blank == id(scheduled_blank)) return;
+          id(scheduled_blank) = blank;
+          if (visible) id(display_blank).turn_off();
+          else id(display_blank).turn_on();
+
+  - id: check_clock_events
+    then:
+      - script.execute: apply_display_schedule
+      - lambda: |-
+          const auto now = id(sntp_time).now();
+          if (!id(alarm_enabled).state || !now.is_valid()) return;
+          const auto alarm = id(alarm_time).state_as_esptime();
+          const int day = now.year * 400 + now.day_of_year;
+          if (now.hour == alarm.hour && now.minute == alarm.minute && id(last_alarm_day) != day &&
+              !id(ring_buzzer).is_running()) {
+            id(last_alarm_day) = day;
+            if (id(skip_next_alarm).state) {
+              id(skip_next_alarm).turn_off();
+              return;
+            }
+            ESP_LOGI("clock_alarm", "Daily alarm triggered at %02u:%02u local time", now.hour, now.minute);
+            id(ring_buzzer).execute(static_cast<int>(id(alarm_duration).state) * 2);
+          }
+
+  - id: ring_buzzer
+    mode: single
+    parameters:
+      pulses: int
+    then:
+      - repeat:
+          count: !lambda return pulses;
+          then:
+            - lambda: clock_buzzer::start(static_cast<gpio_num_t>(${buzzer_pin}), id(buzzer_frequency).state, id(buzzer_volume).state);
+            - delay: 250ms
+            - lambda: clock_buzzer::stop(static_cast<gpio_num_t>(${buzzer_pin}));
+            - delay: 250ms
+
+  - id: silence_alarm
+    then:
+      - script.stop: ring_buzzer
+      - lambda: clock_buzzer::stop(static_cast<gpio_num_t>(${buzzer_pin}));
+
+  - id: press_button_two
+    then:
+      - if:
+          condition:
+            script.is_running: ring_buzzer
+          then:
+            - script.execute: silence_alarm
+          else:
+            - switch.toggle: display_blank

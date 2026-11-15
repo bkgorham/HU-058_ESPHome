@@ -1,5 +1,7 @@
 # Open firmware for the HU-058D WiFi clock
 
+This fork includes [standalone firmware](firmware/standalone/) with on-device Wi-Fi setup, web controls, alarms, weather, and indoor sensors. It runs without Home Assistant and uses the ESP32 display and button wiring below. See the [standalone build and wiring guide](firmware/standalone/README.md).
+
 The AliExpress kit sold as an "ESP8266 IoT Colorful WiFi Clock Kit" ships closed firmware which is lame and terrible. (And really hard to use.) I have reverse engineered the way to drive the display so you can use your own microcontroller. 
 
 I used an ESP32 running ESPHome so I have full Home Assistant integration and a clock that is far more useful than the $8 original form.

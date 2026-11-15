@@ -1,0 +1,466 @@
+packages:
+  weather: !include weather.yaml
+  indoor_temperature: !include indoor_temperature.yaml
+  clock_features: !include clock_features.yaml
+
+substitutions:
+  name: wifi-clock
+  friendly_name: WiFi Clock
+
+esphome:
+  name: ${name}
+  name_add_mac_suffix: true
+  includes:
+    - buzzer.h
+  friendly_name: ${friendly_name}
+  # Template numbers and selects restore their value by publishing it, which
+  # does not fire their set_action, so a restored effect would show in the UI
+  # and do nothing. Push the lot into the component once everything is up.
+  on_boot:
+    priority: -100
+    then:
+      - lambda: |-
+          id(panel)->set_effect_speed(id(effect_speed).state);
+          id(panel)->set_effect_angle(id(effect_angle).state);
+          id(panel)->set_effect_hue_span(id(effect_hue_span).state);
+          id(panel)->set_flash_fade(id(fx_flash_fade).state);
+          std::string sp = id(effect_spread).current_option();
+          id(panel)->set_effect_spread(sp == "Per Digit" ? 1 : sp == "Per LED" ? 2 : 0);
+          std::string ef = id(effect_mode).current_option();
+          id(panel)->set_effect(ef == "Color Cycle" ? 1 : ef == "Flash" ? 2 : 0);
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+external_components:
+  - source:
+      type: local
+      path: components
+
+logger:
+  level: INFO
+
+web_server:
+  id: clock_web_server
+  port: 80
+  version: 3
+  sorting_groups:
+    - id: display_controls
+      name: Display
+      sorting_weight: 0
+    - id: brightness_controls
+      name: Automatic Brightness
+      sorting_weight: 10
+    - id: effect_controls
+      name: Colors and Effects
+      sorting_weight: 20
+    - id: temperature_controls
+      name: Temperature and Weather
+      sorting_weight: 30
+    - id: test_controls
+      name: Display Tests
+      sorting_weight: 40
+  local: true
+  log: false
+  ota: false
+  auth:
+    type: digest
+    username: !secret web_username
+    password: !secret web_password
+
+clock_admin:
+  web_server_id: clock_web_server
+  alarm_time: alarm_time
+  alarm_enabled: alarm_enabled
+  alarm_skip: skip_next_alarm
+  alarm_status: alarm_status
+  alarm_duration: alarm_duration
+  buzzer_volume: buzzer_volume
+  buzzer_frequency: buzzer_frequency
+  test_buzzer: test_buzzer_button
+  silence_alarm: silence_alarm_button
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  reboot_timeout: 0s
+  # There is no RTC on this board, so a cold boot with no network means no
+  # time at all. The panel shows four dashes until it has one.
+  ap:
+    # Defaults to the device hostname, including its MAC suffix.
+    password: !secret ap_password
+    manual_ip:
+      static_ip: 192.168.101.1
+      gateway: 192.168.101.1
+      subnet: 255.255.255.0
+  # The panel drops the upper colon dot while the network is down, so the
+  # clock tells you its time may be drifting without anyone opening an app.
+  on_connect:
+    - lambda: id(panel)->set_online(true);
+  on_disconnect:
+    - lambda: id(panel)->set_online(false);
+
+captive_portal:
+
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: !secret timezone
+    update_interval: 15min
+
+aip33628:
+  id: panel
+  clk_pin: GPIO22    # MCU socket pin 14 (HU-058D) or 16 (HU-058/SE), driver 1
+  data_pin: GPIO21   # MCU socket pin 5,  driver 1
+  clk2_pin: GPIO19   # MCU socket pin 1,  driver 2
+  data2_pin: GPIO18  # MCU socket pin 2,  driver 2
+  time_id: sntp_time
+  # Power on defaults. The switches below own both after that, and they
+  # restore their last state, so these only matter for a first ever boot.
+  twelve_hour: true
+  blink_colon: true
+  # Ceiling on IS[3:0], 0 to 15. Fixed, never varied by content. The stock
+  # firmware ran 0xF and drew 404mA doing it. Drop this if the drivers
+  # run hotter than you want. See docs/display-map.md.
+  max_current: 15
+
+light:
+  - platform: aip33628
+    id: display
+    aip33628_id: panel
+    name: Display
+    web_server:
+      sorting_group_id: display_controls
+      sorting_weight: 0
+    restore_mode: RESTORE_DEFAULT_ON
+    initial_state:
+      brightness: 50%
+    # Gamma is applied inside the component, because it also has to allow for
+    # the 2.5mA floor the drivers cannot go below. Leaving it on here as well
+    # would square it.
+    gamma_correct: 1.0
+
+# The two front panel buttons. Nothing on the board pulls these nets up. The
+# stock 8051 held them high with its own quasi-bidirectional port pullup, and
+# that chip is out of the socket, so the ESP32 internal pullup is the only one
+# and the lines never see 5V. Switch closed shorts to ground, hence inverted.
+#
+binary_sensor:
+  - platform: gpio
+    id: button_1
+    internal: true
+    pin:
+      number: GPIO32  # MCU socket pin 9, net S1, top button on the case
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    filters:
+      - delayed_on: 20ms
+      - delayed_off: 20ms
+    on_press:
+      - script.execute: press_button_one
+  - platform: gpio
+    id: button_2
+    internal: true
+    pin:
+      number: GPIO33  # MCU socket pin 10, net S2, bottom button on the case
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    filters:
+      - delayed_on: 20ms
+      - delayed_off: 20ms
+    on_press:
+      - script.execute: press_button_two
+
+switch:
+  - platform: template
+    id: display_blank
+    name: Blank Display
+    web_server:
+      sorting_group_id: display_controls
+      sorting_weight: 10
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - lambda: id(panel)->set_blanked(true);
+    turn_off_action:
+      - lambda: id(panel)->set_blanked(false);
+
+  - platform: template
+    id: twelve_hour_mode
+    name: 12 Hour Time
+    web_server:
+      sorting_group_id: display_controls
+      sorting_weight: 20
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_on_action:
+      - lambda: id(panel)->set_twelve_hour(true);
+    turn_off_action:
+      - lambda: id(panel)->set_twelve_hour(false);
+
+  # Off means a steady colon, not a dark one.
+  - platform: template
+    id: colon_blink
+    name: Blink Colon
+    web_server:
+      sorting_group_id: display_controls
+      sorting_weight: 30
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_on_action:
+      - lambda: id(panel)->set_blink_colon(true);
+    turn_off_action:
+      - lambda: id(panel)->set_blink_colon(false);
+
+button:
+  - platform: template
+    name: Test Button 1 - Show Temperature
+    web_server:
+      sorting_group_id: test_controls
+      sorting_weight: 10
+    on_press:
+      - script.execute: press_button_one
+
+  - platform: template
+    name: Show Indoor Temperature
+    web_server:
+      sorting_group_id: temperature_controls
+      sorting_weight: 50
+    on_press:
+      - script.execute: show_indoor_temperature
+
+  - platform: template
+    name: Show Outdoor Temperature
+    web_server:
+      sorting_group_id: temperature_controls
+      sorting_weight: 60
+    on_press:
+      - script.execute: show_outdoor_temperature
+
+  - platform: template
+    name: Test Button 2 - Toggle Display Blank
+    web_server:
+      sorting_group_id: test_controls
+      sorting_weight: 20
+    on_press:
+      - script.execute: press_button_two
+
+  - platform: template
+    name: Test Temperature Digits
+    web_server:
+      sorting_group_id: test_controls
+      sorting_weight: 30
+    on_press:
+      - lambda: id(panel)->show_temperature(72, 5000);
+
+  # Three seconds of every populated LED lit white at the current display brightness, then
+  # back to the time with the settings it had before.
+  - platform: template
+    name: Lamp Test
+    web_server:
+      sorting_group_id: test_controls
+      sorting_weight: 0
+    on_press:
+      - lambda: id(panel)->lamp_test(3000);
+
+  - platform: template
+    name: Show Seconds
+    web_server:
+      sorting_group_id: display_controls
+      sorting_weight: 40
+    on_press:
+      - lambda: id(panel)->show_seconds(5000);
+
+  # A UI handle for set_digit_color, and the quickest way to see the four
+  # digits driven independently.
+  - platform: template
+    name: Digit Color Demo
+    web_server:
+      sorting_group_id: effect_controls
+      sorting_weight: 60
+    on_press:
+      - lambda: |-
+          id(panel)->set_digit_color(0, 1.00f, 0.00f, 0.00f);
+          id(panel)->set_digit_color(1, 1.00f, 0.45f, 0.00f);
+          id(panel)->set_digit_color(2, 0.00f, 1.00f, 0.25f);
+          id(panel)->set_digit_color(3, 0.10f, 0.30f, 1.00f);
+
+  - platform: template
+    name: Clear Digit Colors
+    web_server:
+      sorting_group_id: effect_controls
+      sorting_weight: 70
+    on_press:
+      - lambda: id(panel)->clear_digit_colors();
+
+  # Green in the bottom left corner running to yellow in the top right, which
+  # is the sort of thing the stock firmware did. -45 degrees is that diagonal.
+  - platform: template
+    name: Diagonal Gradient
+    web_server:
+      sorting_group_id: effect_controls
+      sorting_weight: 80
+    on_press:
+      - lambda: |-
+          id(panel)->set_gradient(0.00f, 1.00f, 0.10f,
+                                  1.00f, 0.85f, 0.00f, -45.0f);
+
+select:
+  # Effects run on the device, so a fade stays smooth
+  # and keeps going if the network drops.
+  - platform: template
+    name: Effect
+    web_server:
+      sorting_group_id: effect_controls
+      sorting_weight: 0
+    id: effect_mode
+    optimistic: true
+    restore_value: true
+    initial_option: "None"
+    options: ["None", "Color Cycle", "Flash"]
+    set_action:
+      - lambda: |-
+          std::string v = x;
+          id(panel)->set_effect(v == "Color Cycle" ? 1 : v == "Flash" ? 2 : 0);
+
+  # Whole Panel moves everything together. Per Digit gives each digit its own
+  # phase, so the color walks across the four of them. Per LED gives every
+  # position its own, which is the smooth sweep.
+  - platform: template
+    name: Effect Spread
+    web_server:
+      sorting_group_id: effect_controls
+      sorting_weight: 10
+    id: effect_spread
+    optimistic: true
+    restore_value: true
+    initial_option: "Whole Panel"
+    options: ["Whole Panel", "Per Digit", "Per LED"]
+    set_action:
+      - lambda: |-
+          std::string v = x;
+          id(panel)->set_effect_spread(v == "Per Digit" ? 1 : v == "Per LED" ? 2 : 0);
+
+  - platform: template
+    name: Test Unit
+    web_server:
+      sorting_group_id: test_controls
+      sorting_weight: 50
+    id: test_unit
+    optimistic: true
+    restore_value: true
+    initial_option: "F"
+    options: ["None", "F", "C"]
+    set_action:
+      - lambda: |-
+          std::string u = x;
+          if (u == "None") u.clear();
+          id(panel)->show_number((int) id(test_number).state, u, 10000);
+
+number:
+  # Seconds for one full cycle. For Flash this is one complete on and off.
+  - platform: template
+    name: Effect Speed
+    web_server:
+      sorting_group_id: effect_controls
+      sorting_weight: 20
+    id: effect_speed
+    optimistic: true
+    restore_value: true
+    initial_value: 10
+    min_value: 0.2
+    max_value: 600
+    step: 0.2
+    unit_of_measurement: s
+    mode: box
+    set_action:
+      - lambda: id(panel)->set_effect_speed(x);
+
+  # Which way the spread runs. 0 is left to right, 90 top to bottom, 180
+  # right to left. -45 is the bottom left to top right diagonal and 135 is
+  # the other one, top right to bottom left.
+  - platform: template
+    name: Effect Angle
+    web_server:
+      sorting_group_id: effect_controls
+      sorting_weight: 30
+    id: effect_angle
+    optimistic: true
+    restore_value: true
+    initial_value: 0
+    min_value: -180
+    max_value: 180
+    step: 15
+    unit_of_measurement: deg
+    mode: box
+    set_action:
+      - lambda: id(panel)->set_effect_angle(x);
+
+  # How many degrees of the color wheel the panel covers end to end. A full
+  # 360 packs the whole spectrum across four digits and reads as noise, so
+  # the useful settings are narrow. 60 is roughly red through orange, 90
+  # reaches yellow. 0 puts the whole panel on one color that still cycles.
+  # Only Color Cycle uses this, and only when Spread is not Whole Panel.
+  - platform: template
+    name: Effect Hue Span
+    web_server:
+      sorting_group_id: effect_controls
+      sorting_weight: 40
+    id: effect_hue_span
+    optimistic: true
+    restore_value: true
+    initial_value: 90
+    min_value: 0
+    max_value: 360
+    step: 5
+    unit_of_measurement: deg
+    mode: box
+    set_action:
+      - lambda: id(panel)->set_effect_hue_span(x);
+
+  # Seconds each flash transition takes, independent of the flash rate. 0
+  # snaps on and off. 0.1 gives a quick ramp. Anything past half the Effect
+  # Speed is capped there, which is the point where it becomes a triangle.
+  - platform: template
+    name: Flash Fade
+    web_server:
+      sorting_group_id: effect_controls
+      sorting_weight: 50
+    id: fx_flash_fade
+    optimistic: true
+    restore_value: true
+    initial_value: 0
+    min_value: 0
+    max_value: 30
+    step: 0.05
+    unit_of_measurement: s
+    mode: box
+    set_action:
+      - lambda: id(panel)->set_flash_fade(x);
+
+  - platform: template
+    name: Test Number
+    web_server:
+      sorting_group_id: test_controls
+      sorting_weight: 40
+    id: test_number
+    optimistic: true
+    restore_value: true
+    initial_value: 72
+    min_value: -999
+    max_value: 9999
+    step: 1
+    mode: box
+    set_action:
+      - lambda: |-
+          std::string u = id(test_unit).current_option();
+          if (u == "None") u.clear();
+          id(panel)->show_number((int) x, u, 10000);

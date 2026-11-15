@@ -1,0 +1,95 @@
+substitutions:
+  thermistor_pin: GPIO34
+  thermistor_beta: "3950"
+  thermistor_r25: 10kOhm
+
+sensor:
+  - platform: adc
+    pin: ${thermistor_pin}
+    id: thermistor_voltage
+    name: Thermistor Input Voltage
+    web_server:
+      sorting_group_id: temperature_controls
+      sorting_weight: 80
+    attenuation: 12db
+    update_interval: 2s
+
+  - platform: resistance
+    id: thermistor_resistance
+    sensor: thermistor_voltage
+    configuration: DOWNSTREAM
+    resistor: 10kOhm
+    reference_voltage: 3.3V
+    filters:
+      - lambda: |-
+          const float voltage = id(thermistor_voltage).state;
+          return voltage > 0.10f && voltage < 2.95f ? x : NAN;
+
+  - platform: ntc
+    id: indoor_temperature_raw
+    internal: true
+    sensor: thermistor_resistance
+    calibration:
+      b_constant: ${thermistor_beta}
+      reference_temperature: 25°C
+      reference_resistance: ${thermistor_r25}
+    unit_of_measurement: "°F"
+    accuracy_decimals: 1
+    filters:
+      - lambda: return x * 1.8f + 32.0f;
+    on_value:
+      - script.execute: update_indoor_temperature
+
+  - platform: template
+    id: indoor_temperature
+    name: Indoor Temperature
+    web_server:
+      sorting_group_id: temperature_controls
+      sorting_weight: 0
+    device_class: temperature
+    unit_of_measurement: "°F"
+    accuracy_decimals: 1
+    update_interval: never
+
+number:
+  - platform: template
+    id: indoor_offset
+    name: Indoor Temperature Offset
+    web_server:
+      sorting_group_id: temperature_controls
+      sorting_weight: 70
+    unit_of_measurement: "°F"
+    mode: box
+    min_value: -50
+    max_value: 50
+    step: 0.1
+    initial_value: 0
+    optimistic: true
+    restore_value: true
+    on_value:
+      - script.execute: update_indoor_temperature
+
+script:
+  - id: update_indoor_temperature
+    then:
+      - lambda: id(indoor_temperature).publish_state(id(indoor_temperature_raw).state + id(indoor_offset).state);
+
+  - id: show_indoor_temperature
+    then:
+      - lambda: |-
+          const float reading = id(indoor_temperature).state;
+          if (std::isfinite(reading) && reading >= -99 && reading <= 200)
+            id(panel)->show_temperature(std::lround(reading), 5000);
+
+  - id: press_button_one
+    mode: single
+    then:
+      - script.execute: show_outdoor_temperature
+      - script.wait: show_outdoor_temperature
+      - if:
+          condition:
+            lambda: return id(outdoor_temperature_shown);
+          then:
+            - delay: 5s
+      - script.execute: show_indoor_temperature
+      - delay: 5s
