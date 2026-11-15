@@ -1,4 +1,5 @@
 #include "clock_admin.h"
+#include "ds1302.h"
 
 #include <cstring>
 #include <sys/time.h>
@@ -274,6 +275,39 @@ if (admin) {
 }
 </script></html>)html";
 
+constexpr char SETUP_ADDRESS[] = "192.168.101.1";
+constexpr char OFFLINE_SETUP[] = R"html(<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clock Setup</title>
+<style>
+:root{color-scheme:light dark}body{max-width:33rem;margin:2rem auto;padding:0 1rem;font:16px system-ui,sans-serif}
+label{display:grid;gap:.35rem;margin:1rem 0}input,select,button{font:inherit;padding:.45rem}
+</style>
+<h1>ESP32 WiFi Clock setup</h1>
+<p><a href="/wifi-setup">Connect to Wi-Fi</a> for automatic time and outdoor weather.</p>
+<h2>Use Offline</h2>
+<p>Set the clock directly from this hotspot. A battery-backed RTC keeps time across a power loss. Without it, reconnect to set the time again.</p>
+<form method="post" action="/offline-time">
+<label>Timezone<select name="zone" required>
+<option value="" disabled selected>Choose a timezone</option>
+<option value="eastern">Eastern</option>
+<option value="central">Central</option>
+<option value="mountain">Mountain</option>
+<option value="arizona">Arizona</option>
+<option value="pacific">Pacific</option>
+<option value="alaska">Alaska</option>
+<option value="hawaii">Hawaii</option>
+<option value="utc">UTC</option>
+</select></label>
+<label>Local date and time<input name="local_time" type="datetime-local" required min="2019-01-01T00:00" max="2099-12-31T23:59"></label>
+<button>Set time and use offline</button>
+</form>
+<script>
+const now = new Date();
+now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+document.querySelector('input[name="local_time"]').value = now.toISOString().slice(0, 16);
+</script></html>)html";
+
 struct Zone {
   const char *name;
   int west_hours;
@@ -285,7 +319,7 @@ constexpr Zone ZONES[] = {
     {"pacific", 8, true}, {"alaska", 9, true}, {"hawaii", 10, false}, {"utc", 0, false},
 };
 
-void apply_zone(uint8_t index) {
+time::ParsedTimezone timezone_for(uint8_t index) {
   const auto &zone = ZONES[index];
   time::ParsedTimezone tz{};
   tz.std_offset_seconds = zone.west_hours * 3600;
@@ -294,16 +328,16 @@ void apply_zone(uint8_t index) {
     tz.dst_start = {7200, 0, time::DSTRuleType::MONTH_WEEK_DAY, 3, 2, 0};
     tz.dst_end = {7200, 0, time::DSTRuleType::MONTH_WEEK_DAY, 11, 1, 0};
   }
-  time::set_global_tz(tz);
+  return tz;
 }
 
-bool set_local_time(const std::string &value) {
-  if (value.size() != 16) return false;
+std::optional<time_t> local_epoch(const std::string &value, const time::ParsedTimezone &tz) {
+  if (value.size() != 16) return std::nullopt;
   int year, month, day, hour, minute, consumed = 0;
   if (sscanf(value.c_str(), "%4d-%2d-%2dT%2d:%2d%n", &year, &month, &day, &hour, &minute, &consumed) != 5 ||
       consumed != 16 || year < 2019 || year > 2099 || month < 1 || month > 12 ||
       day < 1 || day > time::internal::days_in_month(year, month) ||
-      hour < 0 || hour > 23 || minute < 0 || minute > 59) return false;
+      hour < 0 || hour > 23 || minute < 0 || minute > 59) return std::nullopt;
 
   struct tm wall{};
   wall.tm_year = year - 1900;
@@ -315,7 +349,6 @@ bool set_local_time(const std::string &value) {
   for (int y = 1970; y < year; ++y) days += time::internal::is_leap_year(y) ? 366 : 365;
   for (int m = 1; m < month; ++m) days += time::internal::days_in_month(year, m);
   const time_t naive = ((days * 24 + hour) * 60 + minute) * 60;
-  const auto &tz = time::get_global_tz();
   for (const int offset : {tz.dst_offset_seconds, tz.std_offset_seconds}) {
     if (!tz.has_dst() && offset != tz.std_offset_seconds) continue;
     const auto epoch = naive + offset;
@@ -323,11 +356,17 @@ bool set_local_time(const std::string &value) {
     if (time::epoch_to_local_tm(epoch, tz, &roundtrip) && roundtrip.tm_year == wall.tm_year &&
         roundtrip.tm_mon == wall.tm_mon && roundtrip.tm_mday == wall.tm_mday &&
         roundtrip.tm_hour == wall.tm_hour && roundtrip.tm_min == wall.tm_min) {
-      const timeval updated{epoch, 0};
-      return settimeofday(&updated, nullptr) == 0;
+      return epoch;
     }
   }
-  return false;
+  return std::nullopt;
+}
+
+bool set_clock_epoch(time_t epoch) {
+  const timeval updated{epoch, 0};
+  if (settimeofday(&updated, nullptr) != 0) return false;
+  rtc::write_epoch(epoch);
+  return true;
 }
 
 bool valid_hostname(const std::string &value) {
@@ -401,10 +440,62 @@ void ClockAdmin::setup() {
   timezone_preference_ = global_preferences->make_preference<uint8_t>(0x4855545A);
   uint8_t zone;
   if (timezone_preference_.load(&zone) && zone < std::size(ZONES)) {
-    apply_zone(zone);
+    time::set_global_tz(timezone_for(zone));
     timezone_override_ = ZONES[zone].name;
   }
+  base->add_handler_without_auth(&offline_setup_);
   base->add_handler(this);
+}
+
+bool ClockAdmin::OfflineSetupHandler::canHandle(AsyncWebServerRequest *request) const {
+  if (!captive_portal::global_captive_portal->is_active() || wifi::global_wifi_component->is_connected())
+    return false;
+  char buffer[AsyncWebServerRequest::URL_BUF_SIZE];
+  const auto path = request->url_to(buffer);
+  if (request->method() == HTTP_POST) return path == "/offline-time";
+  return request->method() == HTTP_GET &&
+         (path == "/" || path == "/generate_204" || path == "/hotspot-detect.html" || path == "/connecttest.txt");
+}
+
+void ClockAdmin::OfflineSetupHandler::handleRequest(AsyncWebServerRequest *request) {
+  const auto host = request->get_header("Host");
+  if (request->method() == HTTP_GET) {
+    if (!host.has_value() || *host != SETUP_ADDRESS) {
+      request->redirect(std::string("http://") + SETUP_ADDRESS + "/");
+    } else {
+      request->send(200, "text/html", OFFLINE_SETUP);
+    }
+    return;
+  }
+
+  const auto origin = request->get_header("Origin");
+  if (!host.has_value() || *host != SETUP_ADDRESS || !origin.has_value() ||
+      *origin != std::string("http://") + SETUP_ADDRESS) {
+    request->send(403, "text/plain", "Open the setup page at http://192.168.101.1/.");
+    return;
+  }
+  const auto name = request->arg("zone");
+  for (uint8_t zone = 0; zone < std::size(ZONES); ++zone) {
+    if (name != ZONES[zone].name) continue;
+    const auto tz = timezone_for(zone);
+    const auto epoch = local_epoch(request->arg("local_time"), tz);
+    if (!epoch.has_value()) break;
+    owner_.defer([this, zone, tz, epoch = *epoch]() {
+      if (!captive_portal::global_captive_portal->is_active() || wifi::global_wifi_component->is_connected())
+        return;
+      if (!set_clock_epoch(epoch)) {
+        ESP_LOGE("clock_admin", "Unable to set offline clock time");
+        return;
+      }
+      time::set_global_tz(tz);
+      owner_.timezone_override_ = ZONES[zone].name;
+      if (!owner_.timezone_preference_.save(&zone) || !global_preferences->sync())
+        ESP_LOGE("clock_admin", "Unable to save offline timezone");
+    });
+    request->send(200, "text/html", "<p>Time submitted. Check the clock display. You can now disconnect from the setup hotspot.</p><a href='/'>Back to setup</a>");
+    return;
+  }
+  request->send(400, "text/html", "<p>Choose a timezone and a valid local date and time.</p><a href='/'>Back to setup</a>");
 }
 
 void ClockAdmin::apply_network_hostname() {
@@ -517,6 +608,7 @@ void ClockAdmin::handleRequest(AsyncWebServerRequest *request) {
     request->send(200, "text/plain", message.c_str());
     this->defer([]() {
       if (global_preferences->reset()) {
+        rtc::forget_time();
         const timeval unset{};
         settimeofday(&unset, nullptr);
         App.safe_reboot();
@@ -569,7 +661,7 @@ void ClockAdmin::handleRequest(AsyncWebServerRequest *request) {
       request->redirect("/admin");
       this->defer([this, zone]() {
         if (timezone_preference_.save(&zone) && global_preferences->sync()) {
-          apply_zone(zone);
+          time::set_global_tz(timezone_for(zone));
           timezone_override_ = ZONES[zone].name;
         } else {
           ESP_LOGE("clock_admin", "Unable to save timezone");
@@ -584,7 +676,8 @@ void ClockAdmin::handleRequest(AsyncWebServerRequest *request) {
     const auto local_time = request->arg("local_time");
     request->redirect("/admin");
     this->defer([local_time]() {
-      if (!set_local_time(local_time)) ESP_LOGW("clock_admin", "Invalid or nonexistent local time");
+      const auto epoch = local_epoch(local_time, time::get_global_tz());
+      if (!epoch.has_value() || !set_clock_epoch(*epoch)) ESP_LOGW("clock_admin", "Invalid or nonexistent local time");
     });
     return;
   }

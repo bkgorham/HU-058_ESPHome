@@ -28,6 +28,17 @@ class ClockAdmin : public Component, public AsyncWebHandler {
   void handleRequest(AsyncWebServerRequest *request) override;
 
  private:
+  class OfflineSetupHandler : public AsyncWebHandler {
+   public:
+    explicit OfflineSetupHandler(ClockAdmin &owner) : owner_(owner) {}
+    bool canHandle(AsyncWebServerRequest *request) const override;
+    void handleRequest(AsyncWebServerRequest *request) override;
+
+   private:
+    ClockAdmin &owner_;
+  };
+
+  OfflineSetupHandler offline_setup_{*this};
   struct Credentials {
     char username[33];
     char password[65];

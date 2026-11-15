@@ -6,29 +6,59 @@ Firmware for the ESP32-WROOM-32 conversion of the HU-058D, HU-058, and HU-058SE.
 
 Use the existing ESP32 conversion wiring. For a stock kit, follow the [upstream board preparation and power wiring](https://github.com/misterblack1/HU-058_ESPHome/blob/ceced3c44127c470812991a915b73956226269b7/docs/wiring.md) first.
 
-| Signal | ESP32 | Original MCU socket |
+| Signal | ESP32 | Connects to |
 | --- | --- | --- |
-| Driver 1 CLK | GPIO22 | 14 on HU-058D, 16 on HU-058 / HU-058SE |
-| Driver 1 DATA | GPIO21 | 5 |
-| Driver 2 CLK | GPIO19 | 1 |
-| Driver 2 DATA | GPIO18 | 2 |
-| Top button S1 | GPIO32 | 9 |
-| Bottom button S2 | GPIO33 | 10 |
-| Buzzer control | GPIO25 | 11, to the S8550 base resistor |
-| Indoor NTC thermistor | GPIO34 | 3, at the thermistor divider junction |
-| 5539 light sensor | GPIO35 | 4, at the LDR divider junction |
-| Common ground | GND | 8 |
+| Driver 1 CLK | GPIO22 | Original MCU socket pin 14 on HU-058D, 16 on HU-058 / HU-058SE |
+| Driver 1 DATA | GPIO21 | Original MCU socket pin 5 |
+| Driver 2 CLK | GPIO19 | Original MCU socket pin 1 |
+| Driver 2 DATA | GPIO18 | Original MCU socket pin 2 |
+| Top button S1 | GPIO32 | Original MCU socket pin 9 |
+| Bottom button S2 | GPIO33 | Original MCU socket pin 10 |
+| Buzzer control | GPIO25 | Original MCU socket pin 11, to the S8550 base resistor |
+| Indoor NTC thermistor | GPIO34 | Original MCU socket pin 3, at the thermistor divider junction |
+| 5539 light sensor | GPIO35 | Original MCU socket pin 4, at the LDR divider junction |
+| DS1302 chip enable | GPIO27 | DS1302 pin 5 (CE) |
+| DS1302 data | GPIO26 | DS1302 pin 6 (I/O) |
+| DS1302 serial clock | GPIO23 | DS1302 pin 7 (SCLK) |
+| Common ground | GND | Original MCU socket pin 8 and DS1302 pin 4 |
 | Sensor and buzzer supply | 3V3 | Rewired supply pads for the two divider pull-ups and S8550 emitter circuit |
 
 ### Move the three circuits to 3.3 V
 
-With power disconnected, cut the original **5 V supply trace feeding each of these three circuits**. Solder a jumper from the ESP32 **3V3** pin to the isolated supply side of each circuit:
+Disconnect power before cutting or soldering. These annotated photos show the cuts and jumpers for the board pictured. Verify the traces on your board if its layout differs.
+
+1. **Side A (display side).** Cut the 5 V trace just above the marked through-hole. Join all three marked through-hole pads with insulated jumper wire, as shown in red.
+
+   ![Side A showing one 5 V trace cut and the red jumper linking three pads](images/3v3-conversion-side-a.jpg)
+
+2. **Side B (component side).** Cut the two 5 V traces marked above the through-holes near Q1 and R2. Connect the ESP32 **3V3** pin to the marked supply pad at the buzzer transistor, as shown in blue. Together with the Side A jumpers, this feeds the buzzer, thermistor, and light sensor from 3.3 V.
+
+   ![Side B showing two 5 V trace cuts and the blue jumper from ESP32 3V3 to the buzzer transistor](images/3v3-conversion-side-b.jpeg)
 
 - **Buzzer:** Feed the S8550 emitter and its base pull-up from **3.3 V**. GPIO25 controls the base through the existing base resistor at socket pin 11.
 - **Thermistor:** Feed the supply side of the fixed 10 kΩ divider resistor from **3.3 V**. Socket pin 3 is the divider signal for GPIO34.
 - **Light sensor:** Feed the supply side of the fixed 10 kΩ divider resistor from **3.3 V**. Socket pin 4 is the divider signal for GPIO35.
 
 Trace the connections on your board before cutting. Cut only the feeds to these three circuits and keep the display’s 5 V supply intact. With the ESP32 GPIO leads disconnected, verify the rewired supply pads read about 3.3 V and both sensor signal nodes stay within 0–3.3 V relative to common ground. Power off before attaching the GPIO leads.
+
+## DS1302 battery-backed clock
+
+For a bare 8-pin DS1302, identify pin 1 from the package marking and wire it as follows:
+
+| DS1302 pin | Signal | Connect to |
+| --- | --- | --- |
+| 1 | VCC2 | ESP32 3V3, with a 100 nF bypass capacitor to ground near the IC |
+| 2 | X1 | One lead of a 32.768 kHz, 6 pF load watch crystal |
+| 3 | X2 | Other crystal lead. Keep both crystal traces short |
+| 4 | GND | ESP32 GND and battery negative |
+| 5 | CE (sometimes RST) | ESP32 GPIO27 |
+| 6 | I/O | ESP32 GPIO26 |
+| 7 | SCLK | ESP32 GPIO23 |
+| 8 | VCC1 | Positive terminal of a 3 V backup battery, such as a CR2032 |
+
+The firmware disables the DS1302 trickle charger. Keep the main RTC supply and GPIO signals at 3.3 V. If reusing a clock PCB’s RTC footprint, verify its supply and signal traces before connecting the ESP32. The coin cell powers the RTC only. [DS1302 datasheet](https://www.analog.com/media/en/technical-documentation/data-sheets/DS1302.pdf)
+
+Set the time once through setup or Administration, or let the clock sync over Wi-Fi. These operations write UTC to the RTC. On boot the firmware reads the RTC, then applies the clock’s timezone. To test backup, disconnect the clock’s main power for a few minutes, leave the coin cell installed, and restart without home Wi-Fi. The display should show the elapsed time. A factory reset invalidates the saved RTC time. Set or sync the time again afterward.
 
 ## Build and flash
 
@@ -45,12 +75,18 @@ Trace the connections on your board before cutting. Cut only the feeds to these 
 ## Set up Wi-Fi on each clock
 
 1. After flashing, join the clock’s password-protected Wi-Fi hotspot from a phone or laptop. Its name has the form `wifi-clock-a1b2c3`, where the last six characters come from that ESP32’s MAC address. Use the `ap_password` from `secrets.yaml`.
-2. Open the captive portal, or browse to [192.168.101.1](http://192.168.101.1/) while connected to the hotspot. Select your home network, enter its password, and submit. The clock saves these credentials on the device. A clock upgrading from the configuration with baked-in Wi-Fi credentials may need this setup once.
+2. Open the captive portal, or browse to [192.168.101.1](http://192.168.101.1/) while connected to the hotspot. Select **Connect to Wi-Fi**, then select your home network, enter its password, and submit. The clock saves these credentials on the device. A clock upgrading from the configuration with baked-in Wi-Fi credentials may need this setup once.
 3. Rejoin your home network and browse to the clock’s hotspot name followed by `.local`, for example `http://wifi-clock-a1b2c3.local/`. If your network cannot resolve `.local` names, use the clock’s IP address from your router or serial log. On first use, sign in with the web credentials in `secrets.yaml`.
 
 Flash the same firmware on each clock and repeat setup for each device. Its setup hotspot returns if it cannot connect to the saved network, so you can enter new credentials there.
 
 For subsequent wireless updates, target the specific clock with `esphome run clock.yaml --device wifi-clock-a1b2c3.local`, substituting its hostname or IP address. For the first wireless upgrade from the earlier configuration, target the existing IP address and reuse the current firmware’s OTA password.
+
+## Use the clock without Wi-Fi
+
+Join the clock’s setup hotspot and open [192.168.101.1](http://192.168.101.1/). Under **Use Offline**, choose your timezone, verify the date and time, and select **Set time and use offline**. The time field starts with your phone or computer’s local time. Adjust it if it differs from the timezone you selected.
+
+The clock keeps time while powered. An initialized DS1302 with a backup battery also preserves time across power loss. Without one, set the time again or connect to Wi-Fi for time sync. To go online later, rejoin the setup hotspot and select **Connect to Wi-Fi**.
 
 ## Recover from an incorrect Wi-Fi password
 
@@ -58,7 +94,7 @@ The setup portal’s **Saved. Connecting…** message confirms that it received 
 
 1. If the clock cannot join, leave it powered for about two minutes so its fallback hotspot can return. If needed, power-cycle it and wait again.
 2. Join the clock’s setup hotspot, `wifi-clock-xxxxxx`, using the `ap_password` from the firmware build. Stay connected if your phone or laptop warns that the hotspot has no internet.
-3. Open [192.168.101.1](http://192.168.101.1/) and re-enter the password for your 2.4 GHz Wi-Fi network.
+3. Open [192.168.101.1](http://192.168.101.1/) select **Connect to Wi-Fi**, and re-enter the password for your 2.4 GHz Wi-Fi network.
 4. Rejoin your home Wi-Fi and open the clock’s current address. After a factory reset, use `http://wifi-clock-xxxxxx.local/` with the clock’s actual MAC suffix, or open the IP address listed by your router.
 
 If the hotspot still does not appear, connect the ESP32 over USB. From this firmware directory, with ESPHome active, run `esphome logs clock.yaml --device /dev/cu.usbserial-3120`. Substitute your USB serial port from `ls /dev/cu.*`. The logs can show authentication failures, a successful connection, or the fallback hotspot starting.
@@ -86,7 +122,7 @@ Open **Administration** at the top of the clock’s web page.
 
 ## Manual time, alarm, and display schedule
 
-- **Set Local Date and Time** in Administration sets the ESP32 clock in the configured timezone. After a Wi-Fi sync or a manual setting, the clock, alarm, and schedule keep running without Wi-Fi while powered. SNTP can correct the time when the network is available. After a restart with no network, set the time again once you can reach the controls. Time across offline power loss requires a battery-backed RTC.
+- **Set Local Date and Time** in Administration sets the ESP32 clock in the configured timezone. After a Wi-Fi sync or a manual setting, the clock, alarm, and schedule keep running without Wi-Fi while powered. SNTP can correct the time when the network is available. After an offline restart, an initialized DS1302 restores the time. Without a valid RTC time, use offline setup to set it again.
 - Open the **Alarm** tab, set **Daily alarm time**, select **Enable daily alarm**, and save. Clear **Enable daily alarm** to turn it off indefinitely, or select **Skip next alarm** to skip one occurrence while keeping the daily alarm enabled. Set **Alarm duration** from 1 to 300 seconds. The default is 30 seconds. Press the bottom button or **Silence Alarm** to stop it.
 - Set **Scheduled Display On** and **Scheduled Display Off**, then turn on **Enable Display Schedule**. The schedule can span midnight. Equal times keep the display on. The bottom button overrides blanking until the next scheduled transition.
 
