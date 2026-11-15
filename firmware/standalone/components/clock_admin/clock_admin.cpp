@@ -24,8 +24,9 @@ body{margin:0;font:16px system-ui,sans-serif;background:var(--page);color:var(--
 a{color:var(--link)}
 nav{display:flex;gap:1.25rem;padding:.85rem 1rem;border-bottom:1px solid var(--border)}
 nav a[aria-current]{font-weight:700}
-iframe{color-scheme:only light;background:#fff;display:block;width:100%;height:70vh;border:1px solid var(--border);border-radius:.5rem;box-sizing:border-box}
-main{max-width:36rem;padding:1rem;margin:auto}
+iframe{color-scheme:only light;background:#fff;display:block;width:100%;height:70vh;border:0}
+main{max-width:64rem;padding:1rem;margin:0}
+main form{max-width:36rem}
 label{display:grid;gap:.3rem;margin:.9rem 0}
 input,select,button{font:inherit;padding:.45rem;background:var(--field);color:var(--text);border:1px solid var(--border)}
 form{margin:0 0 2rem}
@@ -126,7 +127,10 @@ if (admin) {
   panel.addEventListener('load', () => {
     const body = panel.contentDocument?.body;
     if (!body) return;
-    const fit = () => { panel.style.height = (body.scrollHeight + 2) + 'px'; };
+    const fit = () => {
+      const height = body.offsetTop + body.offsetHeight + 2;
+      if (height > 2) panel.style.height = height + 'px';
+    };
     new ResizeObserver(fit).observe(body);
     fit();
   });
