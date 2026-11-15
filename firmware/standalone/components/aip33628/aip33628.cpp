@@ -360,16 +360,6 @@ void Aip33628Panel::set_light(bool on, float r, float g, float b, float brightne
 // that changes a color goes through here, so there is one place that decides
 // what a block ends up at and one place that marks the panel dirty.
 void Aip33628Panel::apply_colors_() {
-  // The lamp test outranks every color tier, including a running effect.
-  if (mode_ == Mode::LAMP) {
-    for (auto &blk : level_)
-      for (auto &seg : blk)
-        for (uint8_t &ch : seg)
-          ch = COLOR_LEVELS - 1;
-    dirty_ = true;
-    return;
-  }
-
   for (int blk = 0; blk < 4; blk++) {
     for (int seg = 0; seg < 9; seg++) {
       const float *c = pos_set_[blk][seg]  ? pos_rgb_[blk][seg]
@@ -516,11 +506,11 @@ void Aip33628Panel::show_number(int value, const std::string &unit, int ms) {
   dirty_ = true;
 }
 
-// Light every populated position white using the shared display brightness.
+// Light every populated position using the current display colors and brightness.
 void Aip33628Panel::lamp_test(int ms) {
   mode_ = Mode::LAMP;
   mode_until_ = millis() + mode_lifetime(ms);
-  apply_colors_();
+  dirty_ = true;
 }
 
 // Right aligned, no colon. A unit takes the rightmost position and leaves
@@ -724,11 +714,8 @@ void Aip33628Panel::loop() {
   // A temporary mode expires here rather than anywhere else, so there is one
   // place that can put the panel back to being a clock.
   if (mode_ != Mode::TIME && (int32_t) (now_ms - mode_until_) >= 0) {
-    bool was_lamp = mode_ == Mode::LAMP;
     mode_ = Mode::TIME;
     dirty_ = true;
-    if (was_lamp)
-      apply_colors_();
   }
 
   ESPTime now{};
@@ -843,7 +830,6 @@ void Aip33628Panel::loop() {
 // driver and the two drivers carry their own SS word anyway. Four different
 // colors reach sixteen steps, which is exactly MAX_STEPS.
 void Aip33628Panel::render_() {
-  const bool temperature = mode_ == Mode::NUMBER && degree_only_;
   uint16_t sub[2][4][COLOR_BITS] = {};
 
   for (int blk = 0; blk < 4; blk++) {
@@ -855,8 +841,7 @@ void Aip33628Panel::render_() {
       int ci = com_index(sp.side ? b.com_hi : b.com_lo);
       int base = 3 * sp.led - 2;  // LED1 is SEG1..SEG3, LED5 is SEG13..SEG15
       for (int ch = 0; ch < 3; ch++) {
-        // A temperature reading stays visible through the flash effect and color overrides.
-        uint8_t lv = temperature ? COLOR_LEVELS - 1 : level_[blk][seg][ch];
+        uint8_t lv = level_[blk][seg][ch];
         if (lv == 0)
           continue;
         uint16_t bit = (uint16_t) (1u << (base + ch));

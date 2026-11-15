@@ -261,7 +261,7 @@ button:
     on_press:
       - lambda: id(panel)->show_temperature(72, 5000);
 
-  # Three seconds of every populated LED lit white at the current display brightness, then
+  # Three seconds of every populated LED using the current display colors and brightness, then
   # back to the time with the settings it had before.
   - platform: template
     name: Lamp Test

@@ -135,7 +135,7 @@ class Aip33628Panel : public Component {
   }
   void show_temperature(int value, int ms);
   void show_number(int value, const std::string &unit, int ms);
-  // Every populated position, white, at the current display brightness.
+  // Every populated position using the current colors and brightness.
   void lamp_test(int ms);
 
   // Per digit color. Blocks are 0 to 3, left to right, and each carries its
