@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 #include "esphome/components/web_server/web_server.h"
 #include "esphome/core/component.h"
 #include "esphome/core/preferences.h"
@@ -15,8 +17,9 @@ class ClockAdmin : public Component, public AsyncWebHandler {
       : web_server_(web_server), alarm_time_(alarm_time), alarm_enabled_(alarm_enabled),
         alarm_skip_(alarm_skip), alarm_status_(alarm_status), alarm_duration_(alarm_duration),
         buzzer_volume_(buzzer_volume), buzzer_frequency_(buzzer_frequency), test_buzzer_(test_buzzer), silence_alarm_(silence_alarm) {}
-  float get_setup_priority() const override { return setup_priority::WIFI - 0.5f; }
+  float get_setup_priority() const override { return setup_priority::WIFI + 1.0f; }
   void setup() override;
+  void apply_network_hostname();
   bool canHandle(AsyncWebServerRequest *request) const override;
   void handleRequest(AsyncWebServerRequest *request) override;
 
@@ -38,6 +41,9 @@ class ClockAdmin : public Component, public AsyncWebHandler {
   ESPPreferenceObject preference_;
   Credentials credentials_{};
   ESPPreferenceObject timezone_preference_;
+  using SavedHostname = std::array<char, 31>;
+  ESPPreferenceObject hostname_preference_;
+  SavedHostname hostname_{};
 };
 
 }  // namespace esphome::clock_admin

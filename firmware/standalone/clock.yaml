@@ -4,10 +4,14 @@ packages:
   clock_features: !include clock_features.yaml
 
 substitutions:
+  firmware_version: "1.0.1"
   name: wifi-clock
   friendly_name: WiFi Clock
 
 esphome:
+  project:
+    name: bkgorham.hu058_standalone
+    version: ${firmware_version}
   name: ${name}
   name_add_mac_suffix: true
   includes:
@@ -20,6 +24,7 @@ esphome:
     priority: -100
     then:
       - lambda: |-
+          id(clock_admin_panel)->apply_network_hostname();
           id(panel)->set_effect_speed(id(effect_speed).state);
           id(panel)->set_effect_angle(id(effect_angle).state);
           id(panel)->set_effect_hue_span(id(effect_hue_span).state);
@@ -71,6 +76,7 @@ web_server:
     password: !secret web_password
 
 clock_admin:
+  id: clock_admin_panel
   web_server_id: clock_web_server
   alarm_time: alarm_time
   alarm_enabled: alarm_enabled
@@ -100,7 +106,9 @@ wifi:
   # The panel drops the upper colon dot while the network is down, so the
   # clock tells you its time may be drifting without anyone opening an app.
   on_connect:
-    - lambda: id(panel)->set_online(true);
+    - lambda: |-
+        id(clock_admin_panel)->apply_network_hostname();
+        id(panel)->set_online(true);
   on_disconnect:
     - lambda: id(panel)->set_online(false);
 

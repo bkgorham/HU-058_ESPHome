@@ -56,6 +56,9 @@ For subsequent wireless updates, target the specific clock with `esphome run clo
 
 Open **Administration** at the top of the clock’s web page.
 
+- **Save hostname** sets the exact name and restarts the clock. Enter `brian-clock` to use `brian-clock.local` for web access and OTA. Use up to 30 letters, digits, or hyphens, with a letter or digit at each end. Leave blank to restore the default `wifi-clock-xxxxxx` name.
+- **Reset All Settings** erases saved Wi-Fi credentials, web login, hostname, timezone override, alarm, display, and sensor settings. The installed firmware and its build-time defaults remain in place. After restart, join the default `wifi-clock-xxxxxx` hotspot with the original setup password and open [192.168.101.1](http://192.168.101.1/) to provision Wi-Fi again.
+
 - **Save timezone** selects a US timezone or UTC and saves it on this clock. Zones that observe daylight saving adjust automatically. The firmware timezone applies until you save a selection.
 - **Set Local Date and Time** sets the clock using the selected timezone. Save the timezone first.
 - **Save Wi-Fi** saves the selected network on this clock and restarts it. Rejoin the new network and use the clock’s same hostname or find its new IP in your router. If the clock cannot connect, use its setup hotspot at [192.168.101.1](http://192.168.101.1/).
@@ -120,3 +123,7 @@ Use **Test Button 1 - Show Temperature** and **Test Button 2 - Toggle Display Bl
 The clock looks up the ZIP using [Zippopotam.us](https://docs.zippopotam.us/docs/getting-started/) and fetches current outdoor conditions from [Open-Meteo](https://open-meteo.com/en/docs). It refreshes about every 15 minutes and shows the temperature rounded to the nearest degree Fahrenheit. If the reading is missing or at least 30 minutes old, pressing the top button tries to fetch a fresh one. If that fails, the display stays on the time.
 
 The display component and GPIO mapping come from [misterblack1/HU-058_ESPHome](https://github.com/misterblack1/HU-058_ESPHome/tree/ceced3c44127c470812991a915b73956226269b7). See the included license.
+
+## Firmware versioning
+
+Administration shows the revision compiled into the installed firmware. Before publishing a new firmware revision, update `firmware_version` in `clock.yaml`. Use major versions for breaking changes, minor versions for backward-compatible features, and patch versions for fixes.

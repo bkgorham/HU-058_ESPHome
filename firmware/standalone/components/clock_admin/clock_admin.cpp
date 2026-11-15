@@ -2,6 +2,8 @@
 
 #include <cstring>
 #include <sys/time.h>
+#include <esp_netif.h>
+#include <mdns.h>
 
 #include "esphome/components/time/posix_tz.h"
 
@@ -22,8 +24,14 @@ html{color-scheme:light dark;--page:#fff;--text:#182230;--link:#174ea6;--field:#
 }
 body{margin:0;font:16px system-ui,sans-serif;background:var(--page);color:var(--text)}
 a{color:var(--link)}
-nav{display:flex;gap:1.25rem;padding:.85rem 1rem;border-bottom:1px solid var(--border)}
-nav a[aria-current]{font-weight:700}
+.site-header{background:var(--field);border-bottom:1px solid var(--border)}
+.site-title{margin:0;padding:1.15rem 1rem .5rem;font-size:clamp(1.25rem,4vw,1.75rem);overflow-wrap:anywhere}
+nav{display:flex;flex-wrap:wrap;gap:.25rem;padding:0 .65rem}
+nav a{padding:.7rem .55rem;text-decoration:none;border-bottom:3px solid transparent}
+nav a:hover{text-decoration:underline}
+nav a[aria-current]{font-weight:700;border-bottom-color:var(--link)}
+h2{margin-top:0;font-size:1.35rem}
+form h3{margin-bottom:.5rem;font-size:1.1rem}
 iframe{color-scheme:only light;background:#fff;display:block;width:100%;height:70vh;border:0}
 main{max-width:64rem;padding:1rem;margin:0}
 main form{max-width:36rem}
@@ -31,15 +39,18 @@ label{display:grid;gap:.3rem;margin:.9rem 0}
 input,select,button{font:inherit;padding:.45rem;background:var(--field);color:var(--text);border:1px solid var(--border)}
 form{margin:0 0 2rem}
 </style>
+<header class="site-header">
+<h1 class="site-title" id="clock-title">Wi-Fi Clock</h1>
 <nav aria-label="Clock pages">
 <a href="/" id="controls">Controls</a><a href="/alarm" id="alarm-tab">Alarm</a><a href="/admin" id="admin-tab">Administration</a>
 </nav>
+</header>
 <main id="controls-page" hidden>
-<h1>Controls</h1>
+<h2>Controls</h2>
 <iframe title="Clock controls" id="panel"></iframe>
 </main>
 <main id="alarm" hidden>
-<h1>Alarm</h1>
+<h2>Alarm</h2>
 <form action="/alarm/settings" method="post">
 <label><span><input type="checkbox" name="enabled"> Enable daily alarm</span></label>
 <label>Daily alarm time<input type="time" name="time" required></label>
@@ -54,9 +65,17 @@ form{margin:0 0 2rem}
 <form action="/alarm/silence" method="post"><button>Silence Alarm</button></form>
 </main>
 <main id="admin" hidden>
-<h1>Administration</h1>
+<h2>Administration</h2>
+<p>Firmware revision <strong>)html" ESPHOME_PROJECT_VERSION R"html(</strong></p>
+<form action="/admin/hostname" method="post">
+<h3>Hostname</h3>
+<p id="current-hostname"></p>
+<label>Hostname<input name="hostname" maxlength="30" pattern="[A-Za-z0-9]+(?:-*[A-Za-z0-9]+)*" placeholder="wifi-clock"></label>
+<p>Use up to 30 letters, digits, and hyphens. Leave blank to restore the default MAC-based name.</p>
+<button>Save hostname</button>
+</form>
 <form action="/admin/timezone" method="post">
-<h2>Timezone</h2>
+<h3>Timezone</h3>
 <label>Timezone<select name="zone" required>
 <option value="" disabled selected>Choose a timezone</option>
 <option value="eastern">Eastern</option>
@@ -71,28 +90,42 @@ form{margin:0 0 2rem}
 <button>Save timezone</button>
 </form>
 <form action="/admin/time" method="post">
-<h2>Set Local Date and Time</h2>
+<h3>Set Local Date and Time</h3>
 <label>Local date and time<input name="local_time" type="datetime-local" required min="2019-01-01T00:00" max="2099-12-31T23:59"></label>
 <button>Set time</button>
 </form>
 <form action="/admin/wifi" method="post">
-<h2>Wi-Fi</h2>
+<h3>Wi-Fi</h3>
 <label>Network name (SSID)<input name="ssid" required maxlength="32" autocomplete="off"></label>
 <label>Network password<input name="password" type="password" maxlength="64" autocomplete="new-password"></label>
 <p>The clock reconnects after saving. If it cannot connect, join its setup hotspot and open <a href="http://192.168.101.1/">192.168.101.1</a>.</p>
 <button>Save Wi-Fi</button>
 </form>
 <form action="/admin/login" method="post">
-<h2>Website login</h2>
+<h3>Website login</h3>
 <label>New username<input name="username" required maxlength="32" pattern="[A-Za-z0-9_.-]+" autocomplete="username"></label>
 <label>New password<input name="password" type="password" required minlength="8" maxlength="64" autocomplete="new-password"></label>
 <button>Save login</button>
+</form>
+<form action="/admin/reset" method="post">
+<h3>Factory reset</h3>
+<p>Erase saved Wi-Fi, web login, hostname, and all other clock settings. The clock restarts in Wi-Fi setup mode.</p>
+<label><span><input type="checkbox" name="confirm" value="yes" required> Erase all saved settings</span></label>
+<button>Reset All Settings</button>
 </form>
 </main>
 <script>
 const admin = location.pathname === '/admin';
 const alarm = location.pathname === '/alarm';
 document.querySelector(admin ? '#admin-tab' : alarm ? '#alarm-tab' : '#controls').setAttribute('aria-current', 'page');
+fetch('/admin/hostname', {cache: 'no-store'})
+  .then(response => response.ok ? response.text() : Promise.reject())
+  .then(hostname => {
+    document.querySelector('#clock-title').textContent = hostname;
+    document.title = hostname + ' · ' + (admin ? 'Administration' : alarm ? 'Alarm' : 'Controls');
+    if (admin) document.querySelector('#current-hostname').textContent = 'Current address ' + hostname + '.local';
+  })
+  .catch(() => {});
 if (admin) {
   document.querySelector('#admin').hidden = false;
 } else if (alarm) {
@@ -124,8 +157,19 @@ if (admin) {
 } else {
   document.querySelector('#controls-page').hidden = false;
   const panel = document.querySelector('#panel');
-  panel.addEventListener('load', () => {
-    const body = panel.contentDocument?.body;
+  panel.addEventListener('load', async () => {
+    const doc = panel.contentDocument;
+    const app = doc?.querySelector('esp-app');
+    if (app) {
+      await panel.contentWindow.customElements.whenDefined('esp-app');
+      await app.updateComplete;
+      if (app.shadowRoot) {
+        const style = doc.createElement('style');
+        style.textContent = 'header { display: none; }';
+        app.shadowRoot.append(style);
+      }
+    }
+    const body = doc?.body;
     if (!body) return;
     const fit = () => {
       const height = body.offsetTop + body.offsetHeight + 2;
@@ -194,6 +238,12 @@ bool set_local_time(const std::string &value) {
   return false;
 }
 
+bool valid_hostname(const std::string &value) {
+  return value.empty() ||
+         (value.size() <= 30 && value.front() != '-' && value.back() != '-' &&
+          value.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-") == std::string::npos);
+}
+
 bool valid_username(const std::string &username) {
   return !username.empty() && username.size() <= 32 &&
          username.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-") ==
@@ -210,6 +260,19 @@ bool printable_password(const std::string &password) {
 }  // namespace
 
 void ClockAdmin::setup() {
+  hostname_preference_ = global_preferences->make_preference<SavedHostname>(0x4855484F);
+  if (hostname_preference_.load(&hostname_)) {
+    hostname_.back() = '\0';
+    if (!valid_hostname(hostname_.data())) hostname_.fill('\0');
+  } else {
+    // Preserve a hostname saved by the earlier hostname-prefix implementation.
+    std::array<char, 26> old_prefix{};
+    auto previous = global_preferences->make_preference<decltype(old_prefix)>(0x4855484E);
+    if (previous.load(&old_prefix)) {
+      old_prefix.back() = '\0';
+      if (valid_hostname(old_prefix.data())) memcpy(hostname_.data(), old_prefix.data(), old_prefix.size());
+    }
+  }
   auto *base = web_server_base::global_web_server_base;
   preference_ = global_preferences->make_preference<Credentials>(0x48554341);
   if (preference_.load(&credentials_)) {
@@ -227,16 +290,24 @@ void ClockAdmin::setup() {
   base->add_handler(this);
 }
 
+void ClockAdmin::apply_network_hostname() {
+  if (hostname_[0] == '\0') return;
+  if (auto *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"))
+    esp_netif_set_hostname(sta, hostname_.data());
+  mdns_hostname_set(hostname_.data());
+  mdns_instance_name_set(hostname_.data());
+}
+
 bool ClockAdmin::canHandle(AsyncWebServerRequest *request) const {
   if (captive_portal::global_captive_portal->is_active()) return false;
   char buffer[AsyncWebServerRequest::URL_BUF_SIZE];
   auto path = request->url_to(buffer);
   if (request->method() == HTTP_GET)
-    return path == "/" || path == "/admin" || path == "/alarm" || path == "/alarm/state";
+    return path == "/" || path == "/admin" || path == "/alarm" || path == "/alarm/state" || path == "/admin/hostname";
   return request->method() == HTTP_POST && (path == "/admin/wifi" || path == "/admin/login" ||
                                           path == "/admin/timezone" || path == "/admin/time" ||
                                           path == "/alarm/settings" || path == "/alarm/test" ||
-                                          path == "/alarm/silence");
+                                          path == "/alarm/silence" || path == "/admin/hostname" || path == "/admin/reset");
 }
 
 void ClockAdmin::handleRequest(AsyncWebServerRequest *request) {
@@ -245,6 +316,8 @@ void ClockAdmin::handleRequest(AsyncWebServerRequest *request) {
   if (request->method() == HTTP_GET) {
     if (path == "/" && request->arg("controls") == "1") {
       web_server_->handle_index_request(request);
+    } else if (path == "/admin/hostname") {
+      request->send(200, "text/plain", hostname_[0] ? hostname_.data() : App.get_name().c_str());
     } else if (path == "/alarm/state") {
       const auto alarm = alarm_time_->state_as_esptime();
       char time_value[8];
@@ -269,6 +342,38 @@ void ClockAdmin::handleRequest(AsyncWebServerRequest *request) {
   const auto origin = request->get_header("Origin");
   if (!host.has_value() || !origin.has_value() || *origin != "http://" + *host) {
     request->send(403, "text/plain", "Open the Administration page on this clock to save changes.");
+    return;
+  }
+  if (path == "/admin/hostname") {
+    const auto value = request->arg("hostname");
+    if (!request->hasArg("hostname") || !valid_hostname(value)) {
+      request->send(400, "text/plain", "Enter up to 30 letters, digits, or hyphens. Start and end with a letter or digit.");
+      return;
+    }
+    SavedHostname hostname{};
+    memcpy(hostname.data(), value.data(), value.size());
+    const std::string next = (value.empty() ? App.get_name().str() : value) + ".local";
+    const std::string message = "Hostname change submitted. After restart, open http://" + next + "/";
+    request->send(200, "text/plain", message.c_str());
+    this->defer([this, hostname]() {
+      if (hostname_preference_.save(&hostname) && global_preferences->sync()) App.safe_reboot();
+      else ESP_LOGE("clock_admin", "Unable to save hostname");
+    });
+    return;
+  }
+  if (path == "/admin/reset") {
+    if (request->arg("confirm") != "yes") {
+      request->send(400, "text/plain", "Confirm that you want to erase all saved settings.");
+      return;
+    }
+    request->send(200, "text/plain", "Factory reset submitted. After restart, join the default wifi-clock setup hotspot.");
+    this->defer([]() {
+      if (global_preferences->reset()) {
+        const timeval unset{};
+        settimeofday(&unset, nullptr);
+        App.safe_reboot();
+      }
+    });
     return;
   }
   if (path == "/alarm/settings") {
