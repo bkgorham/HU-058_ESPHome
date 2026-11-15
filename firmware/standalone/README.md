@@ -52,13 +52,24 @@ Flash the same firmware on each clock and repeat setup for each device. Its setu
 
 For subsequent wireless updates, target the specific clock with `esphome run clock.yaml --device wifi-clock-a1b2c3.local`, substituting its hostname or IP address. For the first wireless upgrade from the earlier configuration, target the existing IP address and reuse the current firmware’s OTA password.
 
+## Recover from an incorrect Wi-Fi password
+
+The setup portal’s **Saved. Connecting…** message confirms that it received the credentials. To verify the connection, check that the clock appears in your router’s device list and that its web page opens from your home network.
+
+1. If the clock cannot join, leave it powered for about two minutes so its fallback hotspot can return. If needed, power-cycle it and wait again.
+2. Join the clock’s setup hotspot, `wifi-clock-xxxxxx`, using the `ap_password` from the firmware build. Stay connected if your phone or laptop warns that the hotspot has no internet.
+3. Open [192.168.101.1](http://192.168.101.1/) and re-enter the password for your 2.4 GHz Wi-Fi network.
+4. Rejoin your home Wi-Fi and open the clock’s current address. After a factory reset, use `http://wifi-clock-xxxxxx.local/` with the clock’s actual MAC suffix, or open the IP address listed by your router.
+
+If the hotspot still does not appear, connect the ESP32 over USB. From this firmware directory, with ESPHome active, run `esphome logs clock.yaml --device /dev/cu.usbserial-3120`. Substitute your USB serial port from `ls /dev/cu.*`. The logs can show authentication failures, a successful connection, or the fallback hotspot starting.
+
 ## Administration
 
 Open **Administration** at the top of the clock’s web page.
 
 - **Save hostname** sets the exact name and restarts the clock. Enter `brian-clock` to use `brian-clock.local` for web access and OTA. Use up to 30 letters, digits, or hyphens, with a letter or digit at each end. Leave blank to restore the default `wifi-clock-xxxxxx` name.
 - **Save domain** sets the suffix used in the clock’s displayed address. The default is `local`. For a custom suffix such as `home.arpa`, configure your router or DNS server to resolve the full name to the clock. The clock still advertises its `.local` name over mDNS.
-- **Reset All Settings** erases saved Wi-Fi credentials, web login, hostname, domain, timezone override, alarm, display, and sensor settings. The installed firmware and its build-time defaults remain in place. After restart, join the default `wifi-clock-xxxxxx` hotspot with the original setup password and open [192.168.101.1](http://192.168.101.1/) to provision Wi-Fi again.
+- **Reset All Settings** erases saved Wi-Fi credentials, web login, hostname, domain, timezone override, alarm, display, and sensor settings. The installed firmware and its build-time defaults remain in place. After restart, join the default `wifi-clock-xxxxxx` hotspot with the original setup password and open [192.168.101.1](http://192.168.101.1/) to provision Wi-Fi again. After setup, rejoin your home network and open the default hostname followed by `.local`, or use the clock’s current IP from your router. Sign in with the original web credentials from the firmware build.
 
 - **Save timezone** selects a US timezone or UTC and saves it on this clock. Zones that observe daylight saving adjust automatically. The firmware timezone applies until you save a selection.
 - **Set Local Date and Time** sets the clock using the selected timezone. Save the timezone first.

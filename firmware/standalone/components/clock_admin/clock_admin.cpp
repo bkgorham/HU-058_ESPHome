@@ -117,7 +117,7 @@ form{margin:0 0 2rem}
 </form>
 <form action="/admin/login" method="post">
 <h3>Website login</h3>
-<label>New username<input name="username" required maxlength="32" pattern="[A-Za-z0-9_.-]+" autocomplete="username"></label>
+<label>New username<input name="username" required maxlength="32" pattern="[A-Za-z0-9_.\-]+" autocomplete="username"></label>
 <label>New password<input name="password" type="password" required minlength="8" maxlength="64" autocomplete="new-password"></label>
 <label>Confirm new password<input name="confirm_password" type="password" required minlength="8" maxlength="64" autocomplete="new-password"></label>
 <button>Save login</button>
@@ -135,13 +135,24 @@ const alarm = location.pathname === '/alarm';
 document.querySelector(admin ? '#admin-tab' : alarm ? '#alarm-tab' : '#controls').setAttribute('aria-current', 'page');
 fetch('/admin/hostname', {cache: 'no-store'})
   .then(response => response.ok ? response.json() : Promise.reject())
-  .then(({hostname, domain}) => {
+  .then(({hostname, domain, username, ssid, zone, timezone}) => {
     const address = hostname + '.' + domain;
     document.querySelector('#clock-hostname').textContent = address;
     document.title = address + ' · ' + (admin ? 'Administration' : alarm ? 'Alarm' : 'Controls');
     if (admin) {
       document.querySelector('#current-hostname').textContent = 'Current address ' + address;
       document.querySelector('#clock-domain').value = domain;
+      document.querySelector('input[name="hostname"]').value = hostname;
+      document.querySelector('input[name="username"]').value = username;
+      document.querySelector('input[name="ssid"]').value = ssid;
+      const selector = document.querySelector('select[name="zone"]');
+      if (zone) {
+        selector.value = zone;
+      } else {
+        const current = new Option(timezone, '', true, true);
+        current.disabled = true;
+        selector.add(current, 0);
+      }
     }
   })
   .catch(() => {});
@@ -330,13 +341,17 @@ void ClockAdmin::setup() {
     credentials_.password[sizeof(credentials_.password) - 1] = '\0';
     if (valid_username(credentials_.username) && strlen(credentials_.password) >= 8 &&
         printable_password(credentials_.password)) {
+      current_username_ = credentials_.username;
       base->set_auth_username(credentials_.username);
       base->set_auth_password(credentials_.password);
     }
   }
   timezone_preference_ = global_preferences->make_preference<uint8_t>(0x4855545A);
   uint8_t zone;
-  if (timezone_preference_.load(&zone) && zone < std::size(ZONES)) apply_zone(zone);
+  if (timezone_preference_.load(&zone) && zone < std::size(ZONES)) {
+    apply_zone(zone);
+    timezone_override_ = ZONES[zone].name;
+  }
   base->add_handler(this);
 }
 
@@ -371,6 +386,11 @@ void ClockAdmin::handleRequest(AsyncWebServerRequest *request) {
       auto json = json::build_json([&](JsonObject root) {
         root["hostname"] = hostname_[0] ? hostname_.data() : App.get_name().c_str();
         root["domain"] = domain_.data();
+        root["username"] = current_username_;
+        char ssid[wifi::SSID_BUFFER_SIZE];
+        root["ssid"] = std::string(wifi::global_wifi_component->wifi_ssid_to(ssid));
+        root["zone"] = timezone_override_ ? timezone_override_ : "";
+        root["timezone"] = default_timezone_;
       });
       request->send(200, "application/json", json.c_str());
     } else if (path == "/alarm/state") {
@@ -437,7 +457,12 @@ void ClockAdmin::handleRequest(AsyncWebServerRequest *request) {
       request->send(400, "text/plain", "Confirm that you want to erase all saved settings.");
       return;
     }
-    request->send(200, "text/plain", "Factory reset submitted. After restart, join the default wifi-clock setup hotspot.");
+    const std::string default_name = App.get_name().str();
+    const std::string message =
+        "Factory reset submitted. Join the " + default_name +
+        " setup hotspot and open http://192.168.101.1/. After saving Wi-Fi, rejoin your home network "
+        "and open http://" + default_name + ".local/ using the original website login.";
+    request->send(200, "text/plain", message.c_str());
     this->defer([]() {
       if (global_preferences->reset()) {
         const timeval unset{};
@@ -491,8 +516,12 @@ void ClockAdmin::handleRequest(AsyncWebServerRequest *request) {
       if (name != ZONES[zone].name) continue;
       request->redirect("/admin");
       this->defer([this, zone]() {
-        if (timezone_preference_.save(&zone) && global_preferences->sync()) apply_zone(zone);
-        else ESP_LOGE("clock_admin", "Unable to save timezone");
+        if (timezone_preference_.save(&zone) && global_preferences->sync()) {
+          apply_zone(zone);
+          timezone_override_ = ZONES[zone].name;
+        } else {
+          ESP_LOGE("clock_admin", "Unable to save timezone");
+        }
       });
       return;
     }

@@ -19,6 +19,10 @@ class ClockAdmin : public Component, public AsyncWebHandler {
         buzzer_volume_(buzzer_volume), buzzer_frequency_(buzzer_frequency), test_buzzer_(test_buzzer), silence_alarm_(silence_alarm) {}
   float get_setup_priority() const override { return setup_priority::WIFI + 1.0f; }
   void setup() override;
+  void set_build_defaults(const char *username, const char *timezone) {
+    current_username_ = username;
+    default_timezone_ = timezone;
+  }
   void apply_network_hostname();
   bool canHandle(AsyncWebServerRequest *request) const override;
   void handleRequest(AsyncWebServerRequest *request) override;
@@ -40,6 +44,9 @@ class ClockAdmin : public Component, public AsyncWebHandler {
   button::Button *silence_alarm_;
   ESPPreferenceObject preference_;
   Credentials credentials_{};
+  const char *current_username_{};
+  const char *default_timezone_{};
+  const char *timezone_override_{};
   ESPPreferenceObject timezone_preference_;
   using SavedHostname = std::array<char, 31>;
   ESPPreferenceObject hostname_preference_;
