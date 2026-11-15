@@ -17,9 +17,9 @@ Use the existing ESP32 conversion wiring. For a stock kit, follow the [upstream 
 | Buzzer control | GPIO25 | Original MCU socket pin 11, to the S8550 base resistor |
 | Indoor NTC thermistor | GPIO34 | Original MCU socket pin 3, at the thermistor divider junction |
 | 5539 light sensor | GPIO35 | Original MCU socket pin 4, at the LDR divider junction |
-| DS1302 chip enable | GPIO27 | DS1302 pin 5 (CE) |
-| DS1302 data | GPIO26 | DS1302 pin 6 (I/O) |
-| DS1302 serial clock | GPIO23 | DS1302 pin 7 (SCLK) |
+| DS1302 chip enable | GPIO27 | DS1302 pin 5 (CE) via Original MCU socket pin 14 |
+| DS1302 data | GPIO26 | DS1302 pin 6 (I/O) via Original MCU socket pin 13 |
+| DS1302 serial clock | GPIO23 | DS1302 pin 7 (SCLK) via Original MCU socket pin 12 |
 | Common ground | GND | Original MCU socket pin 8 and DS1302 pin 4 |
 | Sensor and buzzer supply | 3V3 | Rewired supply pads for the two divider pull-ups and S8550 emitter circuit |
 
@@ -54,7 +54,7 @@ For a bare 8-pin DS1302, identify pin 1 from the package marking and wire it as 
 | 5 | CE (sometimes RST) | ESP32 GPIO27 |
 | 6 | I/O | ESP32 GPIO26 |
 | 7 | SCLK | ESP32 GPIO23 |
-| 8 | VCC1 | Positive terminal of a 3 V backup battery, such as a CR2032 |
+| 8 | VCC1 | Positive terminal of a 3 V backup battery, such as a CR1220 |
 
 The firmware disables the DS1302 trickle charger. Keep the main RTC supply and GPIO signals at 3.3 V. If reusing a clock PCB’s RTC footprint, verify its supply and signal traces before connecting the ESP32. The coin cell powers the RTC only. [DS1302 datasheet](../../reference/ds1302-datasheet.pdf)
 
