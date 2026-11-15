@@ -79,7 +79,7 @@ script:
       - lambda: |-
           const float reading = id(indoor_temperature).state;
           if (std::isfinite(reading) && reading >= -99 && reading <= 200)
-            id(panel)->show_temperature(std::lround(reading), 5000);
+            id(panel)->show_temperature(std::lround(reading), 3000);
 
   - id: press_button_one
     mode: single
@@ -90,6 +90,6 @@ script:
           condition:
             lambda: return id(outdoor_temperature_shown);
           then:
-            - delay: 5s
+            - delay: ${temperature_display_duration}
       - script.execute: show_indoor_temperature
-      - delay: 5s
+      - delay: ${temperature_display_duration}

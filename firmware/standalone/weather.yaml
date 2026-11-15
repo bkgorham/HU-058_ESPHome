@@ -161,6 +161,6 @@ script:
       - lambda: |-
           if (id(weather_updated_at) != 0 &&
               id(sntp_time).timestamp_now() - id(weather_updated_at) < 30 * 60) {
-            id(panel)->show_temperature(std::lround(id(outdoor_temperature).state), 5000);
+            id(panel)->show_temperature(std::lround(id(outdoor_temperature).state), 3000);
             id(outdoor_temperature_shown) = true;
           }

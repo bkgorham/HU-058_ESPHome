@@ -156,6 +156,52 @@ fetch('/admin/hostname', {cache: 'no-store'})
     }
   })
   .catch(() => {});
+function addDisplayColorPicker(doc, table) {
+  const root = table?.shadowRoot;
+  if (!root) return;
+  const row = doc.createElement('div');
+  row.className = 'entity-row';
+  row.innerHTML = '<div></div><label for="display-color">LED Color</label>' +
+                  '<div><input type="color" id="display-color" disabled><span role="status"></span></div>';
+  const picker = row.querySelector('input');
+  const status = row.querySelector('[role="status"]');
+  const light = '/light/Display';
+  picker.addEventListener('change', async () => {
+    const [r, g, b] = picker.value.slice(1).match(/../g).map(channel => parseInt(channel, 16));
+    status.textContent = '';
+    try {
+      const response = await fetch(light + '/turn_on?' + new URLSearchParams({r, g, b}), {method: 'POST'});
+      if (!response.ok) throw new Error();
+    } catch {
+      status.textContent = ' Unable to set LED color.';
+    }
+  });
+  const placePicker = () => {
+    const heading = [...root.querySelectorAll('.tab-header')]
+      .find(header => header.textContent.trim() === 'Colors and Effects');
+    const group = heading?.nextElementSibling;
+    if (group?.classList.contains('tab-container') && row.parentNode !== group) group.prepend(row);
+  };
+  const style = doc.createElement('style');
+  style.textContent = '.colorpicker { display: none; }';
+  root.append(style);
+  new MutationObserver(placePicker).observe(root, {childList: true, subtree: true});
+  placePicker();
+  fetch(light, {cache: 'no-store'})
+    .then(response => {
+      if (!response.ok) throw new Error();
+      return response.json();
+    })
+    .then(({color}) => {
+      if (color && [color.r, color.g, color.b].every(Number.isInteger)) {
+        picker.value = '#' + [color.r, color.g, color.b]
+          .map(channel => channel.toString(16).padStart(2, '0')).join('');
+      }
+      picker.disabled = false;
+    })
+    .catch(() => { status.textContent = ' Unable to read the LED color.'; });
+}
+
 if (admin) {
   document.querySelector('#admin').hidden = false;
   const login = document.querySelector('form[action="/admin/login"]');
@@ -207,6 +253,12 @@ if (admin) {
         const style = doc.createElement('style');
         style.textContent = 'header { display: none; }';
         app.shadowRoot.append(style);
+        const table = app.shadowRoot.querySelector('esp-entity-table');
+        if (table) {
+          await panel.contentWindow.customElements.whenDefined('esp-entity-table');
+          await table.updateComplete;
+          addDisplayColorPicker(doc, table);
+        }
       }
     }
     const body = doc?.body;

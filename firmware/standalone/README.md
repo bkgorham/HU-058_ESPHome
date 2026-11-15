@@ -124,7 +124,7 @@ For troubleshooting, measure each socket node relative to ESP32 GND with its GPI
 
 The firmware assumes a 10 kΩ NTC at 25 °C with beta 3950. Set `thermistor_r25` and `thermistor_beta` in `indoor_temperature.yaml` for your part. Mount it away from the ESP32 and display heat.
 
-One press of Button 1 shows outdoor temperature for five seconds, then indoor temperature for five seconds. An unavailable reading is skipped. Use **Indoor Temperature Offset** to match a nearby reference thermometer after both readings stabilize. For a 45 °F reading in a 72 °F room, enter +27 °F. If the error changes substantially with room temperature, verify the thermistor and divider values.
+One press of Button 1 shows outdoor temperature for three seconds, then indoor temperature for three seconds. An unavailable reading is skipped. Use **Indoor Temperature Offset** to match a nearby reference thermometer after both readings stabilize. For a 45 °F reading in a 72 °F room, enter +27 °F. If the error changes substantially with room temperature, verify the thermistor and divider values.
 
 ## Outdoor temperature
 
