@@ -1,6 +1,8 @@
 #pragma once
 
 #include <array>
+#include <cstdio>
+#include <string>
 #include <optional>
 #include <sys/time.h>
 
@@ -128,6 +130,34 @@ inline std::optional<time_t> read_epoch() {
   utc.second = second;
   utc.recalc_timestamp_utc(false);
   return utc.timestamp;
+}
+
+inline std::string health_status() {
+  static std::optional<time_t> previous;
+  if (!ready || read_register(WRITE_PROTECT) != 0x80) {
+    previous.reset();
+    return "RTC not responding";
+  }
+  if (read_register(VALIDITY_RAM) != TIME_INITIALIZED) {
+    previous.reset();
+    return "RTC needs a manual time setting or network sync";
+  }
+  const auto epoch = read_epoch();
+  if (!epoch.has_value()) {
+    previous.reset();
+    return "RTC stopped or returned an invalid date";
+  }
+
+  const char *state = !previous ? "Checking" : *epoch == *previous ? "Not advancing" :
+                      *epoch < *previous ? "Time moved backward" : "Advancing";
+  previous = epoch;
+  const auto utc = ESPTime::from_epoch_utc(*epoch);
+  const auto system_epoch = ::time(nullptr);
+  char status[112];
+  snprintf(status, sizeof(status), "%s | %04u-%02u-%02u %02u:%02u:%02u UTC | %+lld s vs clock",
+           state, utc.year, utc.month, utc.day_of_month, utc.hour, utc.minute, utc.second,
+           static_cast<long long>(*epoch - system_epoch));
+  return status;
 }
 
 inline void write_epoch(time_t epoch) {

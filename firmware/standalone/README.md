@@ -21,25 +21,25 @@ Use the existing ESP32 conversion wiring. For a stock kit, follow the [upstream 
 | DS1302 data | GPIO26 | DS1302 pin 6 (I/O) via Original MCU socket pin 13 |
 | DS1302 serial clock | GPIO23 | DS1302 pin 7 (SCLK) via Original MCU socket pin 12 |
 | Common ground | GND | Original MCU socket pin 8 and DS1302 pin 4 |
-| Sensor and buzzer supply | 3V3 | Rewired supply pads for the two divider pull-ups and S8550 emitter circuit |
+| Sensor, buzzer, and RTC supply | 3V3 | Rewired feeds for both dividers, the S8550 circuit, and DS1302 VCC2 |
 
-### Move the three circuits to 3.3 V
+### Move the sensors, buzzer, and DS1302 to 3.3 V
 
 Disconnect power before cutting or soldering. These annotated photos show the cuts and jumpers for the board pictured. Verify the traces on your board if its layout differs.
 
-1. **Side A (display side).** Cut the 5 V trace just above the marked through-hole. Join all three marked through-hole pads with insulated jumper wire, as shown in red.
+1. **Side A (display side).** Cut the 5 V trace just above the marked through-hole. Join all four marked through-hole pads with insulated jumper wire, as shown in red.
 
-   ![Side A showing one 5 V trace cut and the red jumper linking three pads](images/3v3-conversion-side-a.jpg)
+   ![Side A showing one 5 V trace cut and the red jumper linking four pads, including the DS1302 supply feed](images/3v3-conversion-side-a.jpg)
 
-2. **Side B (component side).** Cut the two 5 V traces marked above the through-holes near Q1 and R2. Connect the ESP32 **3V3** pin to the marked supply pad at the buzzer transistor, as shown in blue. Together with the Side A jumpers, this feeds the buzzer, thermistor, and light sensor from 3.3 V.
+2. **Side B (component side).** Cut the three marked 5 V traces near Q1, R2, and C4 by the DS1302 footprint. Connect the ESP32 **3V3** pin to the marked supply pad at the buzzer transistor, as shown in blue. Together with the Side A jumpers, this feeds the buzzer, thermistor, light sensor, and DS1302 VCC2 (pin 1) from 3.3 V.
 
-   ![Side B showing two 5 V trace cuts and the blue jumper from ESP32 3V3 to the buzzer transistor](images/3v3-conversion-side-b.jpeg)
+   ![Side B showing three 5 V trace cuts and the blue jumper from ESP32 3V3 to the buzzer transistor](images/3v3-conversion-side-b.jpeg)
 
 - **Buzzer:** Feed the S8550 emitter and its base pull-up from **3.3 V**. GPIO25 controls the base through the existing base resistor at socket pin 11.
 - **Thermistor:** Feed the supply side of the fixed 10 kΩ divider resistor from **3.3 V**. Socket pin 3 is the divider signal for GPIO34.
 - **Light sensor:** Feed the supply side of the fixed 10 kΩ divider resistor from **3.3 V**. Socket pin 4 is the divider signal for GPIO35.
 
-Trace the connections on your board before cutting. Cut only the feeds to these three circuits and keep the display’s 5 V supply intact. With the ESP32 GPIO leads disconnected, verify the rewired supply pads read about 3.3 V and both sensor signal nodes stay within 0–3.3 V relative to common ground. Power off before attaching the GPIO leads.
+Trace the connections on your board before cutting. Cut only the marked 5 V feeds and keep the display’s 5 V supply intact. With the ESP32 GPIO leads disconnected, verify the rewired supply pads read about 3.3 V and both sensor signal nodes stay within 0–3.3 V relative to common ground. Power off before attaching the GPIO leads.
 
 ## DS1302 battery-backed clock
 
@@ -59,6 +59,8 @@ For a bare 8-pin DS1302, identify pin 1 from the package marking and wire it as 
 The firmware disables the DS1302 trickle charger. Keep the main RTC supply and GPIO signals at 3.3 V. If reusing a clock PCB’s RTC footprint, verify its supply and signal traces before connecting the ESP32. The coin cell powers the RTC only. [DS1302 datasheet](../../reference/ds1302-datasheet.pdf)
 
 Set the time once through setup or Administration, or let the clock sync over Wi-Fi. These operations write UTC to the RTC. On boot the firmware reads the RTC, then applies the clock’s timezone. To test backup, disconnect the clock’s main power for a few minutes, leave the coin cell installed, and restart without home Wi-Fi. The display should show the elapsed time. A factory reset invalidates the saved RTC time. Set or sync the time again afterward.
+
+In **Controls → Real-Time Clock**, **DS1302 Status** updates every five seconds. It reports whether the RTC is responding and advancing, its current UTC timestamp, and the signed difference from the ESP32 clock. The RTC cannot report battery voltage over its serial interface. To verify backup power, use the power-disconnect test above.
 
 ## Build and flash
 

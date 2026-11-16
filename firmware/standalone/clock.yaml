@@ -5,7 +5,7 @@ packages:
 
 substitutions:
   temperature_display_duration: 3s
-  firmware_version: "1.3.0"
+  firmware_version: "1.4.1"
   name: wifi-clock
   friendly_name: WiFi Clock
 
@@ -68,6 +68,9 @@ web_server:
     - id: temperature_controls
       name: Temperature and Weather
       sorting_weight: 30
+    - id: rtc_controls
+      name: Real-Time Clock
+      sorting_weight: 35
     - id: test_controls
       name: Display Tests
       sorting_weight: 40
@@ -124,6 +127,14 @@ time:
     update_interval: 15min
     on_time_sync:
       - lambda: clock_admin::rtc::write_epoch(id(sntp_time).timestamp_now());
+
+text_sensor:
+  - platform: template
+    name: DS1302 Status
+    web_server:
+      sorting_group_id: rtc_controls
+    update_interval: 5s
+    lambda: return clock_admin::rtc::health_status();
 
 aip33628:
   id: panel
