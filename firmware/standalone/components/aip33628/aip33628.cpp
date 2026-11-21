@@ -750,7 +750,7 @@ void Aip33628Panel::loop() {
     for (bool &v : blk) v = false;
   }
 
-  if (blanked_ || !enabled_) {
+  if (blanked_ || indicator_blank_ || !enabled_) {
     render_();
     return;
   }
@@ -760,6 +760,23 @@ void Aip33628Panel::loop() {
       for (int seg = 0; seg < 9; seg++)
         on_[blk][seg] = GEOM[blk][seg].id != 0;
     }
+    render_();
+    return;
+  }
+
+  if (countdown_seconds_ >= 0) {
+    if (countdown_flash_ && (now_ms / 500) % 2 == 0) {
+      render_();
+      return;
+    }
+    const int minutes = countdown_seconds_ / 60;
+    const int seconds = countdown_seconds_ % 60;
+    write_digit_(0, '0' + minutes / 10);
+    write_digit_(1, '0' + minutes % 10);
+    write_digit_(2, '0' + seconds / 10);
+    write_digit_(3, '0' + seconds % 10);
+    write_pos_(1, SEG_ANNUN, true);
+    write_pos_(1, SEG_ANNUN2, true);
     render_();
     return;
   }

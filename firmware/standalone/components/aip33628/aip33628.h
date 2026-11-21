@@ -128,7 +128,13 @@ class Aip33628Panel : public Component {
 
   // Temporary displays, driven from the api actions in clock.yaml. Each takes
   // a lifetime in milliseconds and falls back to the time when it runs out.
+  void show_countdown(int seconds, bool flash = false) {
+    countdown_flash_ = flash;
+    countdown_seconds_ = seconds;
+    dirty_ = true;
+  }
   void show_seconds(int ms);
+  void set_indicator_blank(bool blank) { indicator_blank_ = blank; dirty_ = true; }
   void set_blanked(bool blanked) {
     blanked_ = blanked;
     dirty_ = true;
@@ -238,9 +244,12 @@ class Aip33628Panel : public Component {
   volatile uint8_t step_{0};
   volatile uint8_t wait_{0};  // ticks left before the next step is latched
 
+  bool countdown_flash_{false};
+  int countdown_seconds_{-1};
   Mode mode_{Mode::TIME};
   uint32_t mode_until_{0};
   bool blanked_{false};
+  bool indicator_blank_{false};
   bool degree_only_{false};
   int number_{0};
   char unit_{'\0'};

@@ -42,6 +42,23 @@ main form{max-width:36rem}
 label{display:grid;gap:.3rem;margin:.9rem 0}
 input,select,button{font:inherit;padding:.45rem;background:var(--field);color:var(--text);border:1px solid var(--border)}
 form{margin:0 0 2rem}
+
+#alarm{font-family:ui-monospace,system-ui,sans-serif}
+#alarm .settings-heading{display:inline-flex;margin:1em 0 0;padding:.5em 1.5em;background:#7f7f7f4d;border-radius:12px 12px 0 0;font-size:1rem;font-weight:400}
+#alarm .settings-group{border:2px solid #7f7f7f4d;border-radius:0 12px 12px;overflow:hidden}
+#alarm form{max-width:none;margin:0}
+#alarm .settings-group label{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:1rem;margin:0;padding:.4rem 1rem;min-height:40px;box-sizing:border-box}
+#alarm .settings-group label:nth-child(even){background:#5a5a5a1a}
+#alarm .settings-group input{width:7rem;max-width:45%;box-sizing:border-box;text-align:right;font-family:inherit;border-radius:4px}
+#alarm .settings-group input[type=checkbox]{width:1.1rem;height:1.1rem;accent-color:#03a9f4}
+#alarm .settings-group input[type=time]{width:9rem}
+#alarm .settings-group label>div{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap}
+#alarm button{font-family:inherit;color:var(--link);background:transparent;border:0;border-radius:4px;padding:.65rem;cursor:pointer}
+#alarm button:hover{background:#7f7f7f33}
+#alarm button:disabled{opacity:.5;cursor:default}
+#alarm .settings-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;padding:.25rem .5rem}
+#alarm p[role=status]{padding:.65rem 1rem;margin:0;border-top:1px solid #7f7f7f4d;overflow-wrap:anywhere}
+@media(max-width:480px){#alarm .settings-group label{gap:.4rem;padding:.4rem .6rem;font-size:.85rem}}
 </style>
 <header class="site-header">
 <div class="site-identity">
@@ -52,7 +69,7 @@ form{margin:0 0 2rem}
 </div>
 </div>
 <nav aria-label="Clock pages">
-<a href="/" id="controls">Controls</a><a href="/alarm" id="alarm-tab">Alarm</a><a href="/admin" id="admin-tab">Administration</a>
+<a href="/" id="controls">Controls</a><a href="/alarm" id="alarm-tab">Alarm and Timer</a><a href="/admin" id="admin-tab">Administration</a>
 </nav>
 </header>
 <main id="controls-page" hidden>
@@ -60,19 +77,41 @@ form{margin:0 0 2rem}
 <iframe title="Clock controls" id="panel"></iframe>
 </main>
 <main id="alarm" hidden>
-<h2>Alarm</h2>
+<h2>Alarm and Timer</h2>
+<h3 class="settings-heading">Daily Alarm</h3>
+<div class="settings-group">
 <form action="/alarm/settings" method="post">
-<label><span><input type="checkbox" name="enabled"> Enable daily alarm</span></label>
+<label>Enable daily alarm<input type="checkbox" name="enabled"></label>
 <label>Daily alarm time<input type="time" name="time" required></label>
-<label><span><input type="checkbox" name="skip"> Skip next alarm</span></label>
+<label>Skip next alarm<input type="checkbox" name="skip"></label>
 <label>Alarm duration (seconds)<input type="number" name="duration" required min="1" max="300" step="1"></label>
+<label>Snooze duration (minutes)<input type="number" name="snooze" required min="1" max="60" step="1"></label>
 <label>Volume (%)<input type="number" name="volume" required min="0" max="100" step="1"></label>
 <label>Tone Frequency (Hz)<input type="number" name="frequency" required min="1000" max="5000" step="100"></label>
-<button>Save alarm settings</button>
+<div class="settings-actions"><button>Save alarm settings</button></div>
 </form>
 <p id="alarm-status" role="status"></p>
-<form action="/alarm/test" method="post"><button>Test Buzzer</button></form>
-<form action="/alarm/silence" method="post"><button>Silence Alarm</button></form>
+<div class="settings-actions"><form action="/alarm/test" method="post"><button>Test Buzzer</button></form>
+<form action="/alarm/silence" method="post"><button>Silence Alarm</button></form></div>
+</div>
+<section aria-labelledby="timer-heading">
+<h3 id="timer-heading" class="settings-heading">Countdown Timer</h3>
+<div class="settings-group">
+<form id="timer-settings">
+<label>Duration<div style="display:flex;justify-content:flex-end;align-items:center;gap:.5rem">
+<input name="minutes" aria-label="Timer minutes" type="number" min="0" max="99" required style="width:4rem;text-align:right">min
+<input name="seconds" aria-label="Timer seconds" type="number" min="0" max="59" required style="width:4rem;text-align:right">sec
+</div></label>
+<label>Alert duration (seconds)<input name="alert" type="number" min="1" max="300" required></label>
+<div class="settings-actions"><button disabled>Save timer settings</button></div>
+</form>
+<p id="timer-status" role="status">Loading timer…</p>
+<div class="settings-actions"><button type="button" data-timer="Prepare Timer">Prepare</button>
+<button type="button" data-timer="Start Timer">Start / Resume</button>
+<button type="button" data-timer="Pause Timer">Pause</button>
+<button type="button" data-timer="Cancel Timer">Cancel</button></div>
+</div>
+</section>
 </main>
 <main id="admin" hidden>
 <h2>Administration</h2>
@@ -139,7 +178,7 @@ fetch('/admin/hostname', {cache: 'no-store'})
   .then(({hostname, domain, username, ssid, zone, timezone}) => {
     const address = hostname + '.' + domain;
     document.querySelector('#clock-hostname').textContent = address;
-    document.title = address + ' · ' + (admin ? 'Administration' : alarm ? 'Alarm' : 'Controls');
+    document.title = address + ' · ' + (admin ? 'Administration' : alarm ? 'Alarm and Timer' : 'Controls');
     if (admin) {
       document.querySelector('#current-hostname').textContent = 'Current address ' + address;
       document.querySelector('#clock-domain').value = domain;
@@ -203,6 +242,65 @@ function addDisplayColorPicker(doc, table) {
     .catch(() => { status.textContent = ' Unable to read the LED color.'; });
 }
 
+function addDurationInputs(doc, table, name) {
+  const root = table.shadowRoot;
+  const row = doc.createElement('div');
+  row.className = 'entity-row';
+  row.innerHTML = '<div></div><div>' + name + '</div><div style="display:flex;justify-content:flex-end;align-items:center;gap:.5rem">' +
+    '<label style="display:flex;align-items:center;gap:.25rem"><input aria-label="Minutes" type="number" min="0" max="99" step="1" style="width:4rem;text-align:right" disabled>min</label>' +
+    '<label style="display:flex;align-items:center;gap:.25rem"><input aria-label="Seconds" type="number" min="0" max="59" step="1" style="width:4rem;text-align:right" disabled>sec</label></div>';
+  const [minutes, seconds] = row.querySelectorAll('input');
+  const message = doc.createElement('div');
+  message.setAttribute('role', 'status');
+  row.lastElementChild.append(message);
+  const endpoint = '/text/' + encodeURIComponent(name);
+  let saving = false;
+  const save = async () => {
+    if (saving || !minutes.reportValidity() || !seconds.reportValidity()) return;
+    const m = Number(minutes.value), s = Number(seconds.value);
+    if (!Number.isInteger(m) || !Number.isInteger(s) || m * 60 + s < 1) {
+      message.textContent = 'Enter at least one second.';
+      return;
+    }
+    saving = true;
+    minutes.disabled = seconds.disabled = true;
+    try {
+      const value = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+      const response = await fetch(endpoint + '/set?' + new URLSearchParams({value}), {method: 'POST'});
+      if (!response.ok) throw new Error();
+      message.textContent = '';
+    } catch {
+      message.textContent = 'Unable to save duration.';
+    } finally {
+      saving = false;
+      minutes.disabled = seconds.disabled = false;
+    }
+  };
+  minutes.addEventListener('change', save);
+  seconds.addEventListener('change', save);
+  const place = () => {
+    const input = [...root.querySelectorAll('input')].find(input => input.name === 'text/' + name);
+    const original = input?.closest('.entity-row');
+    if (original) {
+      original.hidden = true;
+      original.style.display = 'none';
+      if (row.parentNode !== original.parentNode) original.before(row);
+    }
+  };
+  new MutationObserver(place).observe(root, {childList: true, subtree: true});
+  place();
+  fetch(endpoint, {cache: 'no-store'})
+    .then(response => { if (!response.ok) throw new Error(); return response.json(); })
+    .then(state => {
+      const [m, s] = String(state.value ?? state.state).split(':').map(Number);
+      if (!Number.isInteger(m) || !Number.isInteger(s)) throw new Error();
+      minutes.value = m;
+      seconds.value = s;
+      minutes.disabled = seconds.disabled = false;
+    })
+    .catch(() => { message.textContent = 'Unable to load duration. Reload to retry.'; });
+}
+
 if (admin) {
   document.querySelector('#admin').hidden = false;
   const login = document.querySelector('form[action="/admin/login"]');
@@ -217,6 +315,53 @@ if (admin) {
   });
 } else if (alarm) {
   document.querySelector('#alarm').hidden = false;
+  const timerForm = document.querySelector('#timer-settings');
+  const timerStatus = document.querySelector('#timer-status');
+  const timerRequest = async (path, options) => {
+    const response = await fetch(path, options);
+    if (!response.ok) throw new Error('Timer request failed');
+    return response;
+  };
+  Promise.all([
+    timerRequest('/text/Timer%20Duration').then(response => response.json()),
+    timerRequest('/number/Timer%20Alert%20Duration').then(response => response.json())
+  ]).then(([duration, alert]) => {
+    const [minutes, seconds] = String(duration.value ?? duration.state).split(':');
+    timerForm.elements.minutes.value = Number(minutes);
+    timerForm.elements.seconds.value = Number(seconds);
+    timerForm.elements.alert.value = alert.value;
+    timerForm.querySelector('button').disabled = false;
+  }).catch(() => { timerStatus.textContent = 'Unable to load timer settings. Reload to retry.'; });
+  timerForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const minutes = Number(timerForm.elements.minutes.value);
+    const seconds = Number(timerForm.elements.seconds.value);
+    if (!timerForm.reportValidity() || minutes * 60 + seconds < 1) {
+      timerStatus.textContent = 'Enter at least one second.';
+      return;
+    }
+    const value = String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+    try {
+      await timerRequest('/text/Timer%20Duration/set?' + new URLSearchParams({value}), {method:'POST'});
+      await timerRequest('/number/Timer%20Alert%20Duration/set?' +
+        new URLSearchParams({value:timerForm.elements.alert.value}), {method:'POST'});
+    } catch { timerStatus.textContent = 'Unable to save all timer settings. Reload to verify.'; }
+  });
+  const refreshTimer = async () => {
+    try {
+      const state = await timerRequest('/text_sensor/Timer%20Status', {cache:'no-store'})
+        .then(response => response.json());
+      timerStatus.textContent = state.value ?? state.state;
+    } catch { timerStatus.textContent = 'Unable to read timer status.'; }
+  };
+  document.querySelectorAll('[data-timer]').forEach(button => button.addEventListener('click', async () => {
+    try {
+      await timerRequest('/button/' + encodeURIComponent(button.dataset.timer) + '/press', {method:'POST'});
+      await refreshTimer();
+    } catch { timerStatus.textContent = 'Unable to change timer state.'; }
+  }));
+  refreshTimer();
+  setInterval(refreshTimer, 1000);
   const form = document.querySelector('form[action="/alarm/settings"]');
   const refresh = async (initial) => {
     const status = document.querySelector('#alarm-status');
@@ -230,6 +375,7 @@ if (admin) {
         form.elements.skip.checked = state.skip;
         form.elements.time.value = state.time;
         form.elements.duration.value = state.duration;
+        form.elements.snooze.value = state.snooze;
         form.elements.volume.value = state.volume;
         form.elements.frequency.value = state.frequency;
         form.querySelector('button').disabled = false;
@@ -259,6 +405,16 @@ if (admin) {
           await panel.contentWindow.customElements.whenDefined('esp-entity-table');
           await table.updateComplete;
           addDisplayColorPicker(doc, table);
+          const filterTimer = () => {
+            const heading = [...table.shadowRoot.querySelectorAll('.tab-header')]
+              .find(node => node.textContent.trim() === 'Countdown Timer');
+            if (heading) {
+              heading.style.display = 'none';
+              if (heading.nextElementSibling) heading.nextElementSibling.style.display = 'none';
+            }
+          };
+          new MutationObserver(filterTimer).observe(table.shadowRoot, {childList:true, subtree:true});
+          filterTimer();
         }
       }
     }
@@ -365,6 +521,7 @@ std::optional<time_t> local_epoch(const std::string &value, const time::ParsedTi
 bool set_clock_epoch(time_t epoch) {
   const timeval updated{epoch, 0};
   if (settimeofday(&updated, nullptr) != 0) return false;
+  rtc::time_source = "Manually set";
   rtc::write_epoch(epoch);
   return true;
 }
@@ -545,6 +702,7 @@ void ClockAdmin::handleRequest(AsyncWebServerRequest *request) {
         root["enabled"] = alarm_enabled_->state;
         root["skip"] = alarm_skip_->state;
         root["duration"] = alarm_duration_->state;
+        root["snooze"] = snooze_minutes_->state;
         root["volume"] = buzzer_volume_->state;
         root["frequency"] = buzzer_frequency_->state;
         root["status"] = alarm_status_->state;
@@ -619,11 +777,12 @@ void ClockAdmin::handleRequest(AsyncWebServerRequest *request) {
   if (path == "/alarm/settings") {
     const auto value = request->arg("time");
     ESPTime alarm{};
+    const auto snooze = parse_number<int>(request->arg("snooze"));
     const auto duration = parse_number<int>(request->arg("duration"));
     const auto volume = parse_number<int>(request->arg("volume"));
     const auto frequency = parse_number<int>(request->arg("frequency"));
     if (value.size() != 5 || !ESPTime::strptime(value.c_str(), value.size(), alarm) ||
-        alarm.hour > 23 || alarm.minute > 59 || !duration.has_value() || *duration < 1 || *duration > 300 ||
+        alarm.hour > 23 || alarm.minute > 59 || !snooze.has_value() || *snooze < 1 || *snooze > 60 || !duration.has_value() || *duration < 1 || *duration > 300 ||
         !volume.has_value() || *volume < 0 || *volume > 100 || !frequency.has_value() ||
         *frequency < 1000 || *frequency > 5000 || *frequency % 100 != 0) {
       request->send(400, "text/plain", "Check the alarm time, duration, volume, and tone frequency.");
@@ -631,12 +790,13 @@ void ClockAdmin::handleRequest(AsyncWebServerRequest *request) {
     }
     const bool enabled = request->hasArg("enabled");
     const bool skip = request->hasArg("skip");
-    this->defer([this, alarm, enabled, skip, seconds = *duration, level = *volume, hz = *frequency]() {
+    this->defer([this, alarm, enabled, skip, minutes = *snooze, seconds = *duration, level = *volume, hz = *frequency]() {
       auto time_call = alarm_time_->make_call();
       time_call.set_hour(alarm.hour);
       time_call.set_minute(alarm.minute);
       time_call.set_second(0);
       time_call.perform();
+      snooze_minutes_->make_call().set_value(minutes).perform();
       alarm_duration_->make_call().set_value(seconds).perform();
       buzzer_volume_->make_call().set_value(level).perform();
       buzzer_frequency_->make_call().set_value(hz).perform();

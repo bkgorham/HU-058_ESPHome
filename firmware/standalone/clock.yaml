@@ -2,10 +2,11 @@ packages:
   weather: !include weather.yaml
   indoor_temperature: !include indoor_temperature.yaml
   clock_features: !include clock_features.yaml
+  countdown: !include countdown.yaml
 
 substitutions:
   temperature_display_duration: 3s
-  firmware_version: "1.4.1"
+  firmware_version: "1.9.3"
   name: wifi-clock
   friendly_name: WiFi Clock
 
@@ -68,6 +69,9 @@ web_server:
     - id: temperature_controls
       name: Temperature and Weather
       sorting_weight: 30
+    - id: timer_controls
+      name: Countdown Timer
+      sorting_weight: 32
     - id: rtc_controls
       name: Real-Time Clock
       sorting_weight: 35
@@ -92,6 +96,7 @@ clock_admin:
   alarm_skip: skip_next_alarm
   alarm_status: alarm_status
   alarm_duration: alarm_duration
+  snooze_minutes: snooze_minutes
   buzzer_volume: buzzer_volume
   buzzer_frequency: buzzer_frequency
   test_buzzer: test_buzzer_button
@@ -126,9 +131,42 @@ time:
     timezone: !secret timezone
     update_interval: 15min
     on_time_sync:
-      - lambda: clock_admin::rtc::write_epoch(id(sntp_time).timestamp_now());
+      - lambda: |-
+          clock_admin::rtc::time_source = "Network time (SNTP)";
+          clock_admin::rtc::last_network_sync = id(sntp_time).timestamp_now();
+          clock_admin::rtc::write_epoch(id(sntp_time).timestamp_now());
 
 text_sensor:
+  - platform: template
+    name: Connection Status
+    web_server:
+      sorting_group_id: rtc_controls
+      sorting_weight: 10
+    update_interval: 5s
+    lambda: |-
+      if (id(sntp_time).now().is_valid())
+        return {wifi::global_wifi_component->is_connected() ? "Connected to Wi-Fi" : "Offline"};
+      return {wifi::global_wifi_component->is_connected() ? "Wi-Fi connected; waiting for time" : "Offline; waiting for time"};
+
+  - platform: template
+    name: Time Source
+    web_server:
+      sorting_group_id: rtc_controls
+      sorting_weight: 20
+    update_interval: 5s
+    lambda: return {clock_admin::rtc::time_source};
+
+  - platform: template
+    name: Last Network Time Sync
+    web_server:
+      sorting_group_id: rtc_controls
+      sorting_weight: 30
+    update_interval: 5s
+    lambda: |-
+      const auto epoch = clock_admin::rtc::last_network_sync;
+      if (!epoch) return {"No network sync since startup"};
+      return {ESPTime::from_epoch_local(epoch).strftime("%Y-%m-%d %H:%M:%S")};
+
   - platform: template
     name: DS1302 Status
     web_server:
@@ -200,8 +238,21 @@ binary_sensor:
     filters:
       - delayed_on: 20ms
       - delayed_off: 20ms
-    on_press:
-      - script.execute: press_button_two
+    on_click:
+      - min_length: 50ms
+        max_length: 800ms
+        then:
+          - script.execute: press_button_two
+      - min_length: 1s
+        max_length: 30s
+        then:
+          - if:
+              condition:
+                lambda: return id(countdown_state) != 0;
+              then:
+                - script.execute: cancel_countdown
+              else:
+                - script.execute: prepare_countdown
 
 switch:
   - platform: template

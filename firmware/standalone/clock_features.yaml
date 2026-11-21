@@ -112,6 +112,47 @@ switch:
 
 number:
   - platform: template
+    id: snooze_minutes
+    name: Snooze Duration
+    internal: true
+    min_value: 1
+    max_value: 60
+    step: 1
+    initial_value: 9
+    optimistic: true
+    restore_value: true
+
+  - platform: template
+    id: ldr_dark_voltage
+    name: LDR Dark Voltage
+    unit_of_measurement: V
+    min_value: 0.05
+    max_value: 3.1
+    step: 0.01
+    mode: box
+    initial_value: 2.5
+    optimistic: true
+    restore_value: true
+    web_server:
+      sorting_group_id: brightness_controls
+      sorting_weight: 30
+
+  - platform: template
+    id: ldr_bright_voltage
+    name: LDR Bright Voltage
+    unit_of_measurement: V
+    min_value: 0.05
+    max_value: 3.1
+    step: 0.01
+    mode: box
+    initial_value: 0.25
+    optimistic: true
+    restore_value: true
+    web_server:
+      sorting_group_id: brightness_controls
+      sorting_weight: 40
+
+  - platform: template
     id: buzzer_volume
     name: Buzzer Volume
     internal: true
@@ -146,6 +187,15 @@ number:
     restore_value: true
 
 globals:
+  - id: daily_alarm_ringing
+    type: bool
+    initial_value: 'false'
+  - id: snooze_pending
+    type: bool
+    initial_value: 'false'
+  - id: snooze_deadline
+    type: uint32_t
+    initial_value: '0'
   - id: last_alarm_day
     type: int
     initial_value: '-1'
@@ -161,6 +211,17 @@ text_sensor:
     update_interval: 5s
     lambda: |-
       if (!id(alarm_enabled).state) return {"Disabled"};
+      if (id(snooze_pending)) {
+        const int32_t remaining_ms = static_cast<int32_t>(id(snooze_deadline) - millis());
+        const int remaining = remaining_ms > 0 ? (remaining_ms + 999) / 1000 : 0;
+        if (remaining == 0) return {"Snooze due — waiting for buzzer"};
+        auto next = ESPTime::from_epoch_local(id(sntp_time).timestamp_now() + remaining);
+        char status[128];
+        snprintf(status, sizeof(status), "Snoozed until %s (%02d:%02d remaining) — Button 2 cancels",
+                 next.strftime("%I:%M:%S %p").c_str(), remaining / 60, remaining % 60);
+        return {status};
+      }
+      if (id(daily_alarm_ringing)) return {"Ringing — Button 1 snoozes"};
       if (id(skip_next_alarm).state) return {"Next alarm will be skipped"};
       const auto now = id(sntp_time).now();
       if (!now.is_valid()) return {"Waiting for valid clock time"};
@@ -202,7 +263,13 @@ script:
       - lambda: |-
           const float voltage = id(ambient_light).state;
           if (!id(auto_brightness).state || !std::isfinite(voltage)) return;
-          const float light = std::clamp((2.5f - voltage) / (2.5f - 0.25f), 0.0f, 1.0f);
+          const float dark = id(ldr_dark_voltage).state;
+          const float bright = id(ldr_bright_voltage).state;
+          if (!std::isfinite(dark) || !std::isfinite(bright) || std::abs(dark - bright) < 0.05f) {
+            id(auto_brightness_level).publish_state(NAN);
+            return;
+          }
+          const float light = std::clamp((dark - voltage) / (dark - bright), 0.0f, 1.0f);
           const float factor = 0.15f + 0.85f * light;
           id(panel)->set_ambient_brightness_factor(factor);
           float brightness;
@@ -236,6 +303,13 @@ script:
     then:
       - script.execute: apply_display_schedule
       - lambda: |-
+          if (id(alarm_enabled).state && id(snooze_pending) &&
+              static_cast<int32_t>(millis() - id(snooze_deadline)) >= 0 &&
+              !id(ring_buzzer).is_running()) {
+            id(snooze_pending) = false;
+            id(daily_alarm_ringing) = true;
+            id(ring_buzzer).execute(static_cast<int>(id(alarm_duration).state) * 2);
+          }
           const auto now = id(sntp_time).now();
           if (!id(alarm_enabled).state || !now.is_valid()) return;
           const auto alarm = id(alarm_time).state_as_esptime();
@@ -248,6 +322,7 @@ script:
               return;
             }
             ESP_LOGI("clock_alarm", "Daily alarm triggered at %02u:%02u local time", now.hour, now.minute);
+            id(daily_alarm_ringing) = true;
             id(ring_buzzer).execute(static_cast<int>(id(alarm_duration).state) * 2);
           }
 
@@ -264,8 +339,13 @@ script:
             - lambda: clock_buzzer::stop(static_cast<gpio_num_t>(${buzzer_pin}));
             - delay: 250ms
 
+      - lambda: id(daily_alarm_ringing) = false;
+
   - id: silence_alarm
     then:
+      - lambda: |-
+          id(daily_alarm_ringing) = false;
+          id(snooze_pending) = false;
       - script.stop: ring_buzzer
       - lambda: clock_buzzer::stop(static_cast<gpio_num_t>(${buzzer_pin}));
 
@@ -273,8 +353,46 @@ script:
     then:
       - if:
           condition:
-            script.is_running: ring_buzzer
+            lambda: return id(snooze_pending);
           then:
-            - script.execute: silence_alarm
+            - lambda: id(snooze_pending) = false;
+            - script.execute: flash_snooze_cancelled
           else:
-            - switch.toggle: display_blank
+            - if:
+                condition:
+                  script.is_running: ring_buzzer
+                then:
+                  - script.execute: silence_alarm
+                else:
+                  - if:
+                      condition:
+                        lambda: return id(countdown_state) == 1 || id(countdown_state) == 4;
+                      then:
+                        - lambda: |-
+                            id(countdown_deadline) = millis() + (id(countdown_state) == 4
+                                ? id(countdown_paused_ms) : id(countdown_remaining) * 1000);
+                            id(countdown_state) = 2;
+                      else:
+                        - if:
+                            condition:
+                              lambda: return id(countdown_state) == 2;
+                            then:
+                              - script.execute: pause_countdown
+                            else:
+                              - if:
+                                  condition:
+                                    lambda: return id(countdown_state) == 0;
+                                  then:
+                                    - switch.toggle: display_blank
+
+
+  - id: flash_snooze_cancelled
+    mode: single
+    then:
+      - repeat:
+          count: 3
+          then:
+            - lambda: id(panel)->set_indicator_blank(true);
+            - delay: 250ms
+            - lambda: id(panel)->set_indicator_blank(false);
+            - delay: 250ms

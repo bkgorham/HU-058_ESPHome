@@ -53,6 +53,35 @@ sensor:
 
 number:
   - platform: template
+    id: temperature_rotation_interval
+    name: Temperature Rotation Seconds
+    internal: true
+    min_value: 1
+    max_value: 5999
+    step: 1
+    initial_value: 300
+    optimistic: true
+    restore_value: true
+    on_value:
+      - lambda: id(last_temperature_rotation) = millis();
+
+  - platform: template
+    name: Temperature Rotation Interval
+    unit_of_measurement: min
+    mode: box
+    min_value: 1
+    max_value: 99
+    step: 1
+    update_interval: 1s
+    web_server:
+      sorting_group_id: temperature_controls
+      sorting_weight: 36
+    lambda: |-
+      return std::clamp(std::ceil(id(temperature_rotation_interval).state / 60.0f), 1.0f, 99.0f);
+    set_action:
+      - lambda: id(temperature_rotation_interval).make_call().set_value(x * 60).perform();
+
+  - platform: template
     id: indoor_offset
     name: Indoor Temperature Offset
     web_server:
@@ -69,6 +98,39 @@ number:
     on_value:
       - script.execute: update_indoor_temperature
 
+globals:
+  - id: last_temperature_rotation
+    type: uint32_t
+    initial_value: '0'
+
+switch:
+  - platform: template
+    id: automatic_temperature_rotation
+    name: Automatic Temperature Rotation
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    turn_on_action:
+      - lambda: id(last_temperature_rotation) = millis();
+    web_server:
+      sorting_group_id: temperature_controls
+      sorting_weight: 35
+
+interval:
+  - interval: 1s
+    then:
+      - if:
+          condition:
+            lambda: |-
+              return id(automatic_temperature_rotation).state &&
+                     millis() - id(last_temperature_rotation) >=
+                         static_cast<uint32_t>(std::clamp(std::ceil(id(temperature_rotation_interval).state / 60.0f), 1.0f, 99.0f)) * 60000 &&
+                     !id(display_blank).state && id(display).current_values.is_on() &&
+                     !id(show_temperature_or_increment).is_running() && !id(ring_buzzer).is_running() &&
+                     id(countdown_state) == 0;
+          then:
+            - lambda: id(last_temperature_rotation) = millis();
+            - script.execute: press_button_one
+
 script:
   - id: update_indoor_temperature
     then:
@@ -81,15 +143,42 @@ script:
           if (std::isfinite(reading) && reading >= -99 && reading <= 200)
             id(panel)->show_temperature(std::lround(reading), 3000);
 
-  - id: press_button_one
+  - id: show_temperature_or_increment
     mode: single
     then:
-      - script.execute: show_outdoor_temperature
-      - script.wait: show_outdoor_temperature
       - if:
           condition:
-            lambda: return id(outdoor_temperature_shown);
+            lambda: return id(countdown_state) == 1;
           then:
-            - delay: ${temperature_display_duration}
-      - script.execute: show_indoor_temperature
-      - delay: ${temperature_display_duration}
+            - lambda: |-
+                const int increment = static_cast<int>(id(countdown_duration).state);
+                id(countdown_remaining) = std::min(5999, id(countdown_remaining) + increment);
+                id(panel)->show_countdown(id(countdown_remaining));
+          else:
+            - if:
+                condition:
+                  lambda: return id(countdown_state) == 0;
+                then:
+                  - script.execute: show_outdoor_temperature
+                  - script.wait: show_outdoor_temperature
+                  - if:
+                      condition:
+                        lambda: return id(outdoor_temperature_shown);
+                      then:
+                        - delay: ${temperature_display_duration}
+                  - script.execute: show_indoor_temperature
+                  - delay: ${temperature_display_duration}
+
+
+  - id: press_button_one
+    then:
+      - if:
+          condition:
+            lambda: return id(daily_alarm_ringing) && id(ring_buzzer).is_running();
+          then:
+            - script.execute: silence_alarm
+            - lambda: |-
+                id(snooze_pending) = true;
+                id(snooze_deadline) = millis() + static_cast<uint32_t>(id(snooze_minutes).state) * 60000;
+          else:
+            - script.execute: show_temperature_or_increment

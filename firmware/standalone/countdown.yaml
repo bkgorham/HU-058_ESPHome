@@ -1,0 +1,185 @@
+number:
+  - platform: template
+    id: countdown_duration
+    name: Timer Duration Seconds
+    internal: true
+    unit_of_measurement: s
+    mode: box
+    min_value: 1
+    max_value: 5999
+    step: 1
+    initial_value: 300
+    optimistic: true
+    restore_value: true
+    web_server:
+      sorting_group_id: timer_controls
+
+  - platform: template
+    id: countdown_alert_duration
+    name: Timer Alert Duration
+    unit_of_measurement: s
+    mode: box
+    min_value: 1
+    max_value: 300
+    step: 1
+    initial_value: 10
+    optimistic: true
+    restore_value: true
+    web_server:
+      sorting_group_id: timer_controls
+
+text:
+  - platform: template
+    name: Timer Duration
+    mode: text
+    min_length: 4
+    max_length: 5
+    pattern: '[0-9]{1,2}:[0-5][0-9]'
+    update_interval: 1s
+    web_server:
+      sorting_group_id: timer_controls
+    lambda: |-
+      const int seconds = id(countdown_duration).state;
+      char value[24];
+      snprintf(value, sizeof(value), "%02d:%02d", seconds / 60, seconds % 60);
+      return {value};
+    set_action:
+      - lambda: |-
+          const auto colon = x.find(':');
+          if ((colon != 1 && colon != 2) || x.size() != colon + 3) return;
+          const auto minutes = parse_number<int>(x.substr(0, colon));
+          const auto seconds = parse_number<int>(x.substr(colon + 1));
+          if (!minutes || !seconds || *minutes < 0 || *minutes > 99 || *seconds < 0 || *seconds > 59) return;
+          const int total = *minutes * 60 + *seconds;
+          if (total > 0) id(countdown_duration).make_call().set_value(total).perform();
+
+globals:
+  - id: countdown_state
+    type: int
+    initial_value: '0'
+  - id: countdown_deadline
+    type: uint32_t
+    initial_value: '0'
+  - id: countdown_paused_ms
+    type: uint32_t
+    initial_value: '0'
+  - id: countdown_remaining
+    type: int
+    initial_value: '0'
+
+text_sensor:
+  - platform: template
+    name: Timer Status
+    update_interval: 1s
+    web_server:
+      sorting_group_id: timer_controls
+    lambda: |-
+      if (id(countdown_state) == 0) return {"Idle"};
+      if (id(countdown_state) == 3) return {"Finished — alert sounding"};
+      char status[64];
+      snprintf(status, sizeof(status), "%s %02d:%02d",
+               id(countdown_state) == 1 ? "Ready — press Button 2 to start" :
+               id(countdown_state) == 4 ? "Paused" : "Running",
+               id(countdown_remaining) / 60, id(countdown_remaining) % 60);
+      return {status};
+
+button:
+  - platform: template
+    name: Prepare Timer
+    web_server:
+      sorting_group_id: timer_controls
+    on_press:
+      - script.execute: prepare_countdown
+
+  - platform: template
+    name: Start Timer
+    web_server:
+      sorting_group_id: timer_controls
+    on_press:
+      - if:
+          condition:
+            lambda: return id(countdown_state) == 1 || id(countdown_state) == 4;
+          then:
+            - script.execute: press_button_two
+
+  - platform: template
+    name: Pause Timer
+    web_server:
+      sorting_group_id: timer_controls
+    on_press:
+      - script.execute: pause_countdown
+
+  - platform: template
+    name: Cancel Timer
+    web_server:
+      sorting_group_id: timer_controls
+    on_press:
+      - script.execute: cancel_countdown
+
+script:
+  - id: pause_countdown
+    then:
+      - lambda: |-
+          if (id(countdown_state) != 2) return;
+          const int32_t remaining = static_cast<int32_t>(id(countdown_deadline) - millis());
+          if (remaining <= 0) return;
+          id(countdown_paused_ms) = remaining;
+          id(countdown_remaining) = (remaining + 999) / 1000;
+          id(countdown_state) = 4;
+          id(panel)->show_countdown(id(countdown_remaining));
+
+  - id: cancel_countdown
+    then:
+      - if:
+          condition:
+            lambda: return id(countdown_state) == 3;
+          then:
+            - script.execute: silence_alarm
+      - lambda: |-
+          id(countdown_state) = 0;
+          id(panel)->show_countdown(-1);
+
+  - id: prepare_countdown
+    then:
+      - if:
+          condition:
+            lambda: return id(countdown_state) == 0 && !id(ring_buzzer).is_running();
+          then:
+            - script.stop: show_temperature_or_increment
+            - script.stop: show_outdoor_temperature
+            - switch.turn_off: display_blank
+            - light.turn_on: display
+            - lambda: |-
+                id(countdown_remaining) = id(countdown_duration).state;
+                id(countdown_state) = 1;
+                id(panel)->show_countdown(id(countdown_remaining));
+
+interval:
+  - interval: 100ms
+    then:
+      - lambda: |-
+          if (id(countdown_state) == 3) {
+            const int32_t alert_ms = static_cast<int32_t>(id(countdown_deadline) - millis());
+            if (alert_ms <= 0 || !id(ring_buzzer).is_running()) {
+              id(countdown_state) = 0;
+              id(panel)->show_countdown(-1);
+            } else {
+              id(panel)->show_countdown(0, true);
+            }
+            return;
+          }
+          if (id(countdown_state) != 2) return;
+          const int32_t remaining_ms = static_cast<int32_t>(id(countdown_deadline) - millis());
+          const int remaining = remaining_ms > 0 ? (remaining_ms + 999) / 1000 : 0;
+          if (remaining != id(countdown_remaining)) {
+            id(countdown_remaining) = remaining;
+            id(panel)->show_countdown(remaining);
+          }
+          if (remaining == 0) {
+            const int duration = id(countdown_alert_duration).state;
+            id(countdown_state) = 3;
+            id(countdown_deadline) = millis() + duration * 1000;
+            id(panel)->show_countdown(0, true);
+            if (!id(ring_buzzer).is_running())
+              id(ring_buzzer).execute(duration * 2);
+          }

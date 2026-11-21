@@ -22,6 +22,8 @@ inline constexpr uint8_t CLOCK_BURST = 0xBE;
 inline constexpr uint8_t VALIDITY_RAM = 0xC0;
 inline constexpr uint8_t TIME_INITIALIZED = 0xA7;
 inline bool ready = false;
+inline const char *time_source = "Waiting for time";
+inline time_t last_network_sync = 0;
 
 inline void pause_bus() { esp_rom_delay_us(5); }
 
@@ -191,6 +193,7 @@ inline void restore_at_boot() {
   if (const auto epoch = read_epoch()) {
     const timeval stored{*epoch, 0};
     settimeofday(&stored, nullptr);
+    time_source = "DS1302 battery-backed clock";
     ESP_LOGI("ds1302", "Restored battery-backed clock time");
   } else {
     ESP_LOGI("ds1302", "RTC needs a manual time setting or network sync");

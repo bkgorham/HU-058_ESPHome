@@ -62,6 +62,12 @@ Set the time once through setup or Administration, or let the clock sync over Wi
 
 In **Controls → Real-Time Clock**, **DS1302 Status** updates every five seconds. It reports whether the RTC is responding and advancing, its current UTC timestamp, and the signed difference from the ESP32 clock. The RTC cannot report battery voltage over its serial interface. To verify backup power, use the power-disconnect test above.
 
+## Website pages
+
+- **Controls** groups display power and schedules, automatic brightness and LDR calibration, colors and effects, indoor and outdoor temperatures, rotation frequency, RTC and connection status, and display tests.
+- **Alarm and Timer** contains separate daily alarm and countdown timer groups. Save alarm or timer settings before testing. Timer status shows the remaining time while running or paused.
+- **Administration** contains the installed firmware revision, hostname and domain, timezone, manual date and time, Wi-Fi, website login, and factory reset. Current username, hostname, timezone, and SSID load into their fields. Enter a new website password twice when changing the login.
+
 ## Build and flash
 
 1. Copy `secrets.yaml.example` to `secrets.yaml`. Set the setup hotspot, web, and OTA passwords. These settings can be shared by all clocks using the same firmware. The example timezone is `America/New_York`. Change it if needed.
@@ -96,7 +102,7 @@ The setup portal’s **Saved. Connecting…** message confirms that it received 
 
 1. If the clock cannot join, leave it powered for about two minutes so its fallback hotspot can return. If needed, power-cycle it and wait again.
 2. Join the clock’s setup hotspot, `wifi-clock-xxxxxx`, using the `ap_password` from the firmware build. Stay connected if your phone or laptop warns that the hotspot has no internet.
-3. Open [192.168.101.1](http://192.168.101.1/) select **Connect to Wi-Fi**, and re-enter the password for your 2.4 GHz Wi-Fi network.
+3. Open [192.168.101.1](http://192.168.101.1/), select **Connect to Wi-Fi**, and re-enter the password for your 2.4 GHz Wi-Fi network.
 4. Rejoin your home Wi-Fi and open the clock’s current address. After a factory reset, use `http://wifi-clock-xxxxxx.local/` with the clock’s actual MAC suffix, or open the IP address listed by your router.
 
 If the hotspot still does not appear, connect the ESP32 over USB. From this firmware directory, with ESPHome active, run `esphome logs clock.yaml --device /dev/cu.usbserial-3120`. Substitute your USB serial port from `ls /dev/cu.*`. The logs can show authentication failures, a successful connection, or the fallback hotspot starting.
@@ -112,25 +118,25 @@ Open **Administration** at the top of the clock’s web page.
 - **Save timezone** selects a US timezone or UTC and saves it on this clock. Zones that observe daylight saving adjust automatically. The firmware timezone applies until you save a selection.
 - **Set Local Date and Time** sets the clock using the selected timezone. Save the timezone first.
 - **Save Wi-Fi** saves the selected network on this clock and restarts it. Rejoin the new network and use the clock’s same hostname or find its new IP in your router. If the clock cannot connect, use its setup hotspot at [192.168.101.1](http://192.168.101.1/).
-- **Save login** stores the new username and password on this clock and restarts it. Sign in again with the new login. The username accepts letters, digits, periods, underscores, and hyphens. Use a password of 8–64 printable ASCII characters. The values in `secrets.yaml` are the initial login for a fresh device.
+- **Save login** stores the new username and password on this clock and restarts it. Sign in again with the new login. Enter the new password twice to confirm it. The username accepts letters, digits, periods, underscores, and hyphens. Use a password of 8–64 printable ASCII characters. The values in `secrets.yaml` are the initial login for a fresh device.
 - The clock serves its web page over local HTTP. Change credentials from a trusted network.
 
 ## Controls
 
 - **Display** controls power, RGB color, and brightness. The first-boot brightness is 50%.
-- **12 Hour Time** and **Blink Colon** control the time format and colon. The top button shows outdoor temperature for five seconds. The bottom button blanks the display until pressed again. **Blank Display** shows and controls that state. Use **Show Seconds** on the web page to see seconds.
+- **12 Hour Time** and **Blink Colon** control the time format and colon. The top button shows outdoor temperature for three seconds followed by indoor temperature for three seconds. On the timer ready screen, it adds the configured duration. During a daily alarm, it snoozes the alarm. A short press of the bottom button toggles blanking when idle, starts a prepared timer, silences a ringing buzzer, or cancels a pending snooze. Hold it for at least one second and release to prepare an idle timer or cancel an active timer. **Blank Display** shows and controls that state. Use **Show Seconds** on the web page to see seconds.
 - The web page provides color cycle and flash settings, a per-digit color demo, a diagonal gradient preset, a lamp test, and temporary number display with an optional C or F unit. These named controls also have ESPHome HTTP endpoints. The upstream Home Assistant actions for arbitrary per-digit colors, per-LED colors, and custom gradient endpoints have no standalone equivalent here.
-- After an initial SNTP sync, the clock continues counting time through a Wi-Fi outage. A cold boot displays dashes until it can sync. The fallback Wi-Fi setup network uses the configured access point password.
+- After an initial SNTP sync, the clock continues counting time through a Wi-Fi outage. At startup, the clock restores time from an initialized DS1302. If no valid RTC time is available, it displays dashes until time is set manually or synced. The fallback Wi-Fi setup network uses the configured access point password.
 
 ## Manual time, alarm, and display schedule
 
 - **Set Local Date and Time** in Administration sets the ESP32 clock in the configured timezone. After a Wi-Fi sync or a manual setting, the clock, alarm, and schedule keep running without Wi-Fi while powered. SNTP can correct the time when the network is available. After an offline restart, an initialized DS1302 restores the time. Without a valid RTC time, use offline setup to set it again.
-- Open the **Alarm** tab, set **Daily alarm time**, select **Enable daily alarm**, and save. Clear **Enable daily alarm** to turn it off indefinitely, or select **Skip next alarm** to skip one occurrence while keeping the daily alarm enabled. Set **Alarm duration** from 1 to 300 seconds. The default is 30 seconds. Press the bottom button or **Silence Alarm** to stop it.
+- Open the **Alarm and Timer** tab, set **Daily alarm time**, select **Enable daily alarm**, and save. Clear **Enable daily alarm** to turn it off indefinitely, or select **Skip next alarm** to skip one occurrence while keeping the daily alarm enabled. Set **Alarm duration** from 1 to 300 seconds. The default is 30 seconds. Press the bottom button or **Silence Alarm** to stop it.
 - Set **Scheduled Display On** and **Scheduled Display Off**, then turn on **Enable Display Schedule**. The schedule can span midnight. Equal times keep the display on. The bottom button overrides blanking until the next scheduled transition.
 
 ### Buzzer
 
-In **Alarm**, set **Volume** from 0 to 100% and **Tone Frequency** from 1000 to 5000 Hz. The defaults are 100% and 2500 Hz. Save before using **Test Buzzer** to compare tones.
+In **Alarm and Timer**, set **Volume** from 0 to 100% and **Tone Frequency** from 1000 to 5000 Hz. The defaults are 100% and 2500 Hz. Save before using **Test Buzzer** to compare tones.
 
 The firmware drives an S8550 PNP high-side switch and releases GPIO25 between beeps so the pull-up holds the transistor off. Verify the transistor’s pinout, then connect its emitter to ESP32 3.3 V, its collector to buzzer positive, and buzzer negative to ESP32 ground. Connect GPIO25 to the base through 1 kΩ and the base to 3.3 V through 10 kΩ. For a magnetic buzzer, put a flyback diode across it with the stripe toward the collector. Use the ESP32’s 3.3 V rail with this circuit.
 
@@ -176,4 +182,22 @@ The display component and GPIO mapping come from [misterblack1/HU-058_ESPHome](h
 
 ## Firmware versioning
 
-Administration shows the revision compiled into the installed firmware. Before publishing a new firmware revision, update `firmware_version` in `clock.yaml`. Use major versions for breaking changes, minor versions for backward-compatible features, and patch versions for fixes.
+The current local firmware revision is **1.9.3**. See [CHANGELOG.md](CHANGELOG.md) for the version history. Administration shows the revision compiled into the installed firmware. For each firmware change, update `firmware_version` in `clock.yaml`, add a changelog entry, and update affected instructions. Record build validation separately from hardware testing. Use major versions for breaking changes, minor versions for backward-compatible features, and patch versions for fixes.
+
+## Periodic temperature display and calibration
+
+Enable **Automatic Temperature Rotation** in Controls to show outdoor temperature for three seconds followed by indoor temperature for three seconds at the configured **Temperature Rotation Interval**. Enter whole minutes in the input box. The default is 5 minutes, with a range of 1–99 minutes. Existing intervals with partial minutes round up to the next whole minute. Enabling rotation or changing the interval starts a fresh waiting period. Rotation defaults to off. Automatic rotation pauses while the display is blanked, an alarm is sounding, or a timer is active.
+
+In **Automatic Brightness**, enter **LDR Dark Voltage** using the Ambient Light Voltage measured in your desired dark-room conditions. Enter **LDR Bright Voltage** using the reading in bright-room conditions. Both values are saved. Keep them at least 0.05 V apart. These calibration points set the ends of the dimming range.
+
+**Real-Time Clock** includes Connection Status, Time Source, and Last Network Time Sync. Time Source identifies the source that last set the ESP32 clock. Last Network Time Sync covers the current startup session.
+
+## Countdown timer
+
+In **Alarm and Timer → Countdown Timer**, set **Timer Duration** using the side-by-side minutes and seconds boxes (up to 99 minutes, 59 seconds) and **Alert duration** in seconds (default 10). Both settings are saved.
+
+Hold Button 2 for at least one second and release to prepare the timer. The display shows the configured duration as MM:SS. While the timer is ready, each press of Button 1 adds the configured duration to the total, up to 99:59. For a configured duration of 00:15, presses increase the total to 00:30, 00:45, and so on. A separate short press of Button 2 starts the countdown. Further short presses pause and resume it, retaining the remaining time. Hold Button 2 for at least one second and release to cancel an active or prepared timer. The Alarm and Timer page shows remaining time and offers Prepare, Start / Resume, Pause, and Cancel. **Prepare**, **Start / Resume**, **Pause**, and **Cancel** provide the same actions on the website. When the countdown finishes, 00:00 flashes for the alert duration while the buzzer uses the configured alarm volume and frequency. The display then returns to the clock. Button 2 silences it. The timer operates offline while powered and resets to idle after a reboot.
+
+## Alarm snooze
+
+Set **Snooze duration** on the Alarm and Timer page (1–60 minutes, default 9) and save. While the daily alarm rings, Button 1 silences it and schedules another alert after the snooze duration. While snoozed, Button 2 cancels the pending alert and flashes the display three times. Alarm Status shows the local time the snooze will ring again and the time remaining. Silence Alarm or disabling the daily alarm also clears a pending snooze. A reboot clears snooze.

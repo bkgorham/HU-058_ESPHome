@@ -11,6 +11,7 @@ ALARM_ENTITIES = {
     "alarm_skip": switch.Switch,
     "alarm_status": text_sensor.TextSensor,
     "alarm_duration": number.Number,
+    "snooze_minutes": number.Number,
     "buzzer_volume": number.Number,
     "buzzer_frequency": number.Number,
     "test_buzzer": button.Button,
